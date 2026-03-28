@@ -8,7 +8,7 @@ Tests profiler accuracy and convergence speed across 20 scenarios:
   - 4 minimal input (3 utterances)
   - 4 edge cases (filler, sarcasm, questions-as-advocacy, silence-heavy)
 
-Headline metric: ≥75% correct (15/20) across the full fixture matrix.
+Headline metric: ≥75% correct (12/16 assertable fixtures).
 No API keys required — runs in CI.
 """
 

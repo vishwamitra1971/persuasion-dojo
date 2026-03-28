@@ -24,10 +24,14 @@ Run locally with:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 from backend.coaching_engine import CoachingEngine, CoachingPrompt
 from backend.elm_detector import ELMEvent
@@ -40,6 +44,7 @@ from backend.profiler import WindowClassification
 
 pytestmark = [
     pytest.mark.eval,
+    pytest.mark.timeout(120),
     pytest.mark.skipif(
         not os.environ.get("ANTHROPIC_API_KEY"),
         reason="requires ANTHROPIC_API_KEY — skipped in CI",
@@ -168,13 +173,25 @@ async def grade_prompt(
         f"Coaching prompt to evaluate: \"{prompt_text}\""
     )
 
+    _ALL_FALSE = {
+        "ACTIONABLE": False, "SPECIFIC": False, "CONCISE": False,
+        "POSITIVE_FRAME": False, "CONTEXTUAL": False,
+    }
+
     client = AsyncAnthropic()
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=200,
-        system=RUBRIC_SYSTEM,
-        messages=[{"role": "user", "content": scenario}],
-    )
+    try:
+        response = await asyncio.wait_for(
+            client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=200,
+                system=RUBRIC_SYSTEM,
+                messages=[{"role": "user", "content": scenario}],
+            ),
+            timeout=30.0,
+        )
+    except (asyncio.TimeoutError, Exception) as exc:
+        logger.warning("Sonnet grader call failed: %s", exc)
+        return _ALL_FALSE
 
     raw = response.content[0].text.strip()
     # Strip markdown fences if present
@@ -183,7 +200,12 @@ async def grade_prompt(
     if raw.endswith("```"):
         raw = raw[:-3].rstrip()
 
-    grades = json.loads(raw)
+    try:
+        grades = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Sonnet returned malformed JSON: %s", raw[:200])
+        return _ALL_FALSE
+
     return {
         k: v.upper() == "Y"
         for k, v in grades.items()
@@ -254,14 +276,14 @@ SCENARIOS = [
         "user": "Bridge Builder", "counterpart": "Firestarter", "trigger": "cadence:self",
         "context": "team",
     },
-    # General cadence — group layer (12-13)
+    # General cadence — additional self-layer contexts (12-13)
     {
-        "name": "cadence_group_inquisitor_team",
+        "name": "cadence_self_inquisitor_team",
         "user": "Inquisitor", "counterpart": "Bridge Builder", "trigger": "cadence:self",
         "context": "team",
     },
     {
-        "name": "cadence_group_architect_1on1",
+        "name": "cadence_self_architect_1on1",
         "user": "Architect", "counterpart": "Firestarter", "trigger": "cadence:self",
         "context": "1:1",
     },
@@ -335,6 +357,7 @@ async def test_scenario_quality(scenario: dict):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(600)
 async def test_aggregate_rubric_pass_rate():
     """Across all 15 scenarios, ≥80% of rubric grades should pass (60/75)."""
     total_rubrics = 0
