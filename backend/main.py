@@ -2456,6 +2456,10 @@ async def retro_upload(
                             await db.flush()
                             logger.info("[retro] created participant: %s → %s (id=%s)", display_name, profile["archetype"], p.id)
                         else:
+                            # Update top-level profile if retro analysis has higher confidence
+                            if profile["confidence"] > (p.ps_confidence or 0):
+                                p.ps_type = profile["archetype"]
+                                p.ps_confidence = profile["confidence"]
                             logger.info("[retro] resolved existing participant: %s (id=%s)", display_name, p.id)
 
                         cls = profiler.all_classifications().get(sid)

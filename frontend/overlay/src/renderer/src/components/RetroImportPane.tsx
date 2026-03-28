@@ -55,6 +55,7 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   Firestarter: "#F59E0B",
   Inquisitor: "#A855F7",
   "Bridge Builder": "#10B981",
+  Unknown: "#6B7280",
 };
 
 export function RetroImportPane({ onBack, onViewSession, activeJobId, onJobIdChange }: RetroImportPaneProps): React.ReactElement {
