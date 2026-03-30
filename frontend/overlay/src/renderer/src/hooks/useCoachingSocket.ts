@@ -106,6 +106,10 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
   }) => {
     if (phaseRef.current !== "idle") return;
 
+    // Ensure the Swift audio capture binary is running before we connect.
+    // It may have been stopped by the previous session's stop_capture signal.
+    window.api.startCapture();
+
     setConnectionState("connecting");
     updatePhase("active");
     setPrompts([]);
@@ -214,6 +218,9 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
         // Python silence watchdog fired — Swift binary stopped writing to the
         // FIFO. Ask the main process to restart the capture binary.
         window.api.restartCapture();
+      } else if (msg.type === "stop_capture") {
+        // Session ended — stop AudioCapture to prevent orphaned processes.
+        window.api.stopCapture();
       } else if (msg.type === "session_ended") {
         setSessionResult(msg as unknown as SessionEndData);
         updatePhase("ended");

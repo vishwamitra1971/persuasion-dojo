@@ -366,11 +366,29 @@ class WatchResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise the database on startup."""
+    """Initialise the database on startup; clean up resources on shutdown."""
     await init_db()
     async with get_db_session() as db:
         await _get_or_create_user(db)
+    _background_tasks: set[asyncio.Task] = set()
+    app.state.background_tasks = _background_tasks
     yield
+    # ── Shutdown cleanup ──
+    # Remove the named pipe so orphaned AudioCapture writers get SIGPIPE
+    # and the next server start begins with a clean slate.
+    import os as _os
+    _pipe = "/tmp/persuasion_audio.pipe"
+    try:
+        if _os.path.exists(_pipe):
+            _os.unlink(_pipe)
+            logger.info("Lifespan shutdown: removed audio pipe %s", _pipe)
+    except OSError:
+        pass
+    # Cancel tracked background tasks (debrief, playbook updates)
+    for task in _background_tasks:
+        if not task.done():
+            task.cancel()
+    _background_tasks.clear()
 
 
 app = FastAPI(
@@ -1846,16 +1864,28 @@ async def _handle_session_end(
         }
     )
 
+    # Tell the frontend to stop audio capture — prevents orphaned Swift processes
+    try:
+        await ws.send_json({"type": "stop_capture"})
+    except Exception:
+        pass  # WebSocket may already be closing
+
     await ws.close()
 
     # ── Post-session background tasks (do not block WebSocket close) ──
     if has_utterances:
-        asyncio.create_task(
+        bg = getattr(ws.app.state, "background_tasks", None)
+        t1 = asyncio.create_task(
             _generate_session_debrief(pipeline.session_id, pipeline.utterances, scores)
         )
-        asyncio.create_task(
+        t2 = asyncio.create_task(
             _update_coaching_playbook(pipeline, scores)
         )
+        if bg is not None:
+            bg.add(t1)
+            bg.add(t2)
+            t1.add_done_callback(bg.discard)
+            t2.add_done_callback(bg.discard)
 
 
 async def _generate_session_debrief(

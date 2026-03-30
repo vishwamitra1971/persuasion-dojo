@@ -74,6 +74,14 @@ function killOrphanedCaptures(): void {
   } catch {
     // No orphans found — expected on clean start
   }
+  // Remove stale pipe file so the next session starts clean.
+  const pipePath = "/tmp/persuasion_audio.pipe";
+  try {
+    require("fs").unlinkSync(pipePath);
+    process.stderr.write("[AudioCapture] removed stale pipe\n");
+  } catch {
+    // Pipe doesn't exist — expected on first launch
+  }
 }
 
 function spawnCapture(): void {
@@ -384,6 +392,20 @@ app.whenReady().then(() => {
   ipcMain.on("swift:restart", () => {
     stopCapture();
     spawnCapture();
+  });
+
+  // IPC: New session starting — ensure the capture binary is running.
+  // The renderer sends this before opening the WebSocket so audio is flowing.
+  ipcMain.on("swift:start", () => {
+    process.stderr.write("[AudioCapture] session starting — ensuring capture is running\n");
+    spawnCapture();
+  });
+
+  // IPC: Session ended — stop the capture binary to prevent orphaned processes.
+  // The renderer forwards this after receiving a "stop_capture" WebSocket message.
+  ipcMain.on("swift:stop", () => {
+    process.stderr.write("[AudioCapture] session ended — stopping capture\n");
+    stopCapture();
   });
 
   app.on("activate", () => {

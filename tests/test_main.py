@@ -622,6 +622,7 @@ class TestWebSocketSessionEnd:
             with client.websocket_connect(f"/ws/session/{sid}") as ws:
                 ws.send_json({"type": "session_end"})
                 ws.receive_json()  # session_ended
+                ws.receive_json()  # stop_capture
                 # Server closed — next receive raises
                 with pytest.raises(Exception):
                     ws.receive_text()
