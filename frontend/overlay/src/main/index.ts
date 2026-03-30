@@ -68,20 +68,29 @@ function notifyRenderer(channel: string, ...args: unknown[]): void {
 function killOrphanedCaptures(): void {
   // Kill any AudioCapture processes left over from a previous session.
   // This prevents two writers on the same FIFO which corrupts the audio stream.
+  // Uses pgrep to find PIDs, then kills each individually. This avoids the race
+  // where a blanket `pkill -f AudioCapture` could kill a newly spawned process.
   try {
-    require("child_process").execSync("pkill -9 -f AudioCapture", { stdio: "ignore" });
-    process.stderr.write("[AudioCapture] killed orphaned processes\n");
+    const pids = require("child_process")
+      .execSync("pgrep -f AudioCapture", { encoding: "utf-8" })
+      .trim()
+      .split("\n")
+      .filter((p: string) => p.length > 0);
+    for (const pid of pids) {
+      // Skip our own captureProcess if it somehow survived — we'll manage it directly
+      if (captureProcess && String(captureProcess.pid) === pid) continue;
+      try {
+        process.kill(Number(pid), "SIGKILL");
+        process.stderr.write(`[AudioCapture] killed orphan PID ${pid}\n`);
+      } catch {
+        // Already exited
+      }
+    }
   } catch {
     // No orphans found — expected on clean start
   }
-  // Remove stale pipe file so the next session starts clean.
-  const pipePath = "/tmp/persuasion_audio.pipe";
-  try {
-    require("fs").unlinkSync(pipePath);
-    process.stderr.write("[AudioCapture] removed stale pipe\n");
-  } catch {
-    // Pipe doesn't exist — expected on first launch
-  }
+  // Pipe cleanup is owned by AudioPipeReader (Python) — do not delete here.
+  // Deleting the pipe from Electron races with AudioPipeReader creating it.
 }
 
 function spawnCapture(): void {

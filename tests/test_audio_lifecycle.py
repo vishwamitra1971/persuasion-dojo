@@ -10,7 +10,7 @@ Covers:
   1. Pipe file management: create, remove, idempotent cleanup, stale pipe handling
   2. Reader state machine: start/stop, double-start, double-stop
   3. Multi-session lifecycle: stop→start→stop cycles (the bug that kept breaking)
-  4. Session-end signaling: stop_capture sent before WS close
+  4. Session-end signaling: client stops capture on session_ended
   5. Lifespan shutdown: pipe removal, background task cancellation
   6. Silence watchdog: fires after timeout, resets on audio, doesn't fire early
   7. Audio callback plumbing: chunks forwarded, level metering works
@@ -341,13 +341,14 @@ class TestPipeLifecycle:
 
 class TestSessionEndSignal:
     """
-    Verify the WebSocket session-end sequence: stop_capture MUST be sent
-    BEFORE ws.close() so the Electron main process can kill AudioCapture.
+    Verify the WebSocket session-end sequence: session_ended is sent before
+    ws.close(). The client stops AudioCapture when it receives session_ended
+    (no separate stop_capture message — that raced with ws.close()).
     """
 
     @pytest.mark.asyncio
-    async def test_session_end_sends_stop_capture_before_close(self):
-        """stop_capture message must precede WebSocket close."""
+    async def test_session_ended_sent_before_close(self):
+        """session_ended message must precede WebSocket close."""
         call_order: list[str] = []
 
         ws = AsyncMock()
@@ -358,33 +359,35 @@ class TestSessionEndSignal:
 
         # Simulate the tail of _handle_session_end
         await ws.send_json({"type": "session_ended", "session_id": "test"})
-        try:
-            await ws.send_json({"type": "stop_capture"})
-        except Exception:
-            pass
         await ws.close()
 
-        assert "send:stop_capture" in call_order, "stop_capture was never sent"
-        assert call_order.index("send:stop_capture") < call_order.index("close"), \
-            f"stop_capture must come before close, got: {call_order}"
+        assert "send:session_ended" in call_order, "session_ended was never sent"
+        assert call_order.index("send:session_ended") < call_order.index("close"), \
+            f"session_ended must come before close, got: {call_order}"
 
     @pytest.mark.asyncio
-    async def test_stop_capture_tolerates_closed_ws(self):
-        """If WS is already closed when stop_capture is sent, it shouldn't crash."""
+    async def test_no_separate_stop_capture_message(self):
+        """Backend must NOT send a separate stop_capture — client handles it on session_ended."""
+        messages_sent: list[str] = []
         ws = AsyncMock()
-        ws.send_json = AsyncMock(side_effect=Exception("WebSocket closed"))
+        ws.send_json = AsyncMock(
+            side_effect=lambda msg: messages_sent.append(msg.get("type", ""))
+        )
+        ws.close = AsyncMock()
 
-        # The real code wraps this in try/except
-        try:
-            await ws.send_json({"type": "stop_capture"})
-        except Exception:
-            pass  # Expected — the real code catches this
+        # Simulate session end — only session_ended, no stop_capture
+        await ws.send_json({"type": "session_ended", "session_id": "test"})
+        await ws.close()
+
+        assert "session_ended" in messages_sent
+        assert "stop_capture" not in messages_sent, \
+            "stop_capture should not be sent — client stops on session_ended"
 
     @pytest.mark.asyncio
     async def test_session_ended_always_sent_even_without_utterances(self):
         """
         Even an empty session (no speech detected) should send session_ended
-        so the frontend knows to clean up.
+        so the frontend knows to clean up and stop AudioCapture.
         """
         call_order: list[str] = []
         ws = AsyncMock()
@@ -399,14 +402,9 @@ class TestSessionEndSignal:
             "session_id": "test",
             "persuasion_score": None,
         })
-        try:
-            await ws.send_json({"type": "stop_capture"})
-        except Exception:
-            pass
         await ws.close()
 
         assert "session_ended" in call_order
-        assert "stop_capture" in call_order
 
 
 # ---------------------------------------------------------------------------
@@ -417,29 +415,14 @@ class TestLifespanShutdown:
     """Verify the FastAPI lifespan shutdown handler cleans up correctly."""
 
     @pytest.mark.asyncio
-    async def test_lifespan_removes_pipe_on_shutdown(self, tmp_path):
-        """The lifespan shutdown handler should remove the audio pipe."""
-        pipe_path = str(tmp_path / "test_shutdown.pipe")
-        os.mkfifo(pipe_path)
-
-        # Simulate what the lifespan shutdown does
-        if os.path.exists(pipe_path):
-            os.unlink(pipe_path)
-
-        assert not os.path.exists(pipe_path)
-
-    @pytest.mark.asyncio
-    async def test_lifespan_no_pipe_no_error(self, tmp_path):
-        """Shutdown should be safe when no pipe exists."""
-        pipe_path = str(tmp_path / "nonexistent.pipe")
-        assert not os.path.exists(pipe_path)
-
-        # Simulate lifespan cleanup — should not raise
-        try:
-            if os.path.exists(pipe_path):
-                os.unlink(pipe_path)
-        except OSError:
-            pass
+    async def test_lifespan_does_not_delete_pipe(self):
+        """
+        Pipe cleanup is owned by AudioPipeReader.stop(), not the lifespan
+        shutdown handler. Lifespan should only cancel background tasks.
+        """
+        # This is a design invariant test — pipe deletion was removed from
+        # lifespan to prevent the triple-deletion race condition.
+        pass
 
     @pytest.mark.asyncio
     async def test_background_tasks_cancelled_on_shutdown(self):
@@ -796,10 +779,10 @@ class TestWebSocketMultiSession:
 
         self._transcriber_mock.disconnect.assert_called()
 
-    def test_stop_capture_message_sent(self, client):
+    def test_no_stop_capture_after_session_ended(self, client):
         """
-        Session end must send a stop_capture message so Electron
-        kills the AudioCapture process.
+        Backend must NOT send a separate stop_capture message.
+        The client stops AudioCapture when it receives session_ended.
         """
         from backend.main import SessionPipeline
 
@@ -814,11 +797,9 @@ class TestWebSocketMultiSession:
         ):
             with client.websocket_connect(f"/ws/session/{sid}") as ws:
                 ws.send_json({"type": "session_end"})
-                msg1 = ws.receive_json()  # session_ended
-                msg2 = ws.receive_json()  # stop_capture
+                msg = ws.receive_json()  # session_ended
 
-        assert msg1["type"] == "session_ended"
-        assert msg2["type"] == "stop_capture"
+        assert msg["type"] == "session_ended"
 
     def test_ws_disconnect_without_session_end_no_crash(self, client):
         """

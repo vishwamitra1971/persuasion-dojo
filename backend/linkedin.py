@@ -26,12 +26,16 @@ _LINKEDIN_URL_RE = re.compile(
     r"https?://(?:www\.)?linkedin\.com/in/[\w\-]+/?$", re.IGNORECASE
 )
 
-# Headers that mimic a browser link-preview fetch (Googlebot-style).
+# Headers that mimic a standard Chrome browser request.
+# LinkedIn verifies Googlebot claims via reverse DNS — a Googlebot UA from a
+# non-Google IP gets rejected. Use a real browser UA instead.
 _HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
 

@@ -374,16 +374,7 @@ async def lifespan(app: FastAPI):
     app.state.background_tasks = _background_tasks
     yield
     # ── Shutdown cleanup ──
-    # Remove the named pipe so orphaned AudioCapture writers get SIGPIPE
-    # and the next server start begins with a clean slate.
-    from backend.audio import _DEFAULT_PIPE_PATH
-    _pipe = _DEFAULT_PIPE_PATH
-    try:
-        if os.path.exists(_pipe):
-            os.unlink(_pipe)
-            logger.info("Lifespan shutdown: removed audio pipe %s", _pipe)
-    except OSError:
-        pass
+    # Pipe cleanup is owned by AudioPipeReader.stop() — do not duplicate here.
     # Cancel tracked background tasks (debrief, playbook updates)
     # Copy the set to avoid RuntimeError if done callbacks fire during iteration.
     for task in list(_background_tasks):
@@ -1870,12 +1861,8 @@ async def _handle_session_end(
         }
     )
 
-    # Tell the frontend to stop audio capture — prevents orphaned Swift processes
-    try:
-        await ws.send_json({"type": "stop_capture"})
-    except Exception:
-        pass  # WebSocket may already be closing
-
+    # Audio capture is stopped by the frontend when it receives session_ended.
+    # No separate stop_capture message needed — it raced with ws.close().
     await ws.close()
 
     # ── Post-session background tasks (do not block WebSocket close) ──

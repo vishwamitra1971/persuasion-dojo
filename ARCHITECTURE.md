@@ -68,19 +68,21 @@ The Swift AudioCapture binary is managed by Electron's main process via IPC:
 ```
 Session start ("Go Live"):
   Renderer → swift:start IPC → Electron main → spawnCapture()
-  → kills orphans (pkill AudioCapture), removes stale pipe
+  → kills orphans by PID (pgrep + process.kill, not pkill — avoids race)
   → spawns fresh Swift binary → creates /tmp/persuasion_audio.pipe
   → Python AudioPipeReader.start() opens the FIFO
 
 Session end:
-  Python _handle_session_end() → sends {"type": "stop_capture"} over WS
-  → Renderer receives → swift:stop IPC → Electron main → stopCapture()
-  → SIGTERM to Swift binary
-  Python AudioPipeReader.stop() → removes the named pipe file
+  Python _handle_session_end() → sends {"type": "session_ended"} over WS
+  → Renderer receives session_ended → swift:stop IPC → Electron main → stopCapture()
+  → SIGTERM to Swift binary (PID-specific, not pkill)
+  Python AudioPipeReader.stop() → removes the named pipe (single owner)
+
+  Also: ws.onclose handler calls stopCapture() as safety net for dropped connections.
 
 Server shutdown (lifespan):
-  Removes /tmp/persuasion_audio.pipe
   Cancels tracked background tasks (debrief, playbook updates)
+  Pipe cleanup owned by AudioPipeReader.stop() — not duplicated here
 ```
 
 **Why this matters:** without explicit lifecycle management, the Swift binary outlives its session. Subsequent "Go Live" sessions find the old process still writing to the pipe, flooding Deepgram with stale audio. The `swift:start` → `swift:stop` cycle prevents orphaned processes.
@@ -263,7 +265,6 @@ Processes a recorded audio file (`.wav`, `.m4a`, `.mp3`) through Deepgram's REST
 {"type": "coaching_prompt", "layer": "audience", "text": "...", "is_fallback": false, "triggered_by": "elm:ego_threat", "speaker_id": "speaker_1"}
 {"type": "pong"}
 {"type": "session_ended", "session_id": "...", "persuasion_score": 72, "growth_delta": 4.2}
-{"type": "stop_capture"}
 {"type": "swift_restart_needed"}
 {"type": "audio_level", "level": 0.42}
 {"type": "no_audio", "message": "No audio detected. ..."}
@@ -271,7 +272,7 @@ Processes a recorded audio file (`.wav`, `.m4a`, `.mp3`) through Deepgram's REST
 ```
 
 **Audio lifecycle messages:**
-- `stop_capture` — sent after `session_ended`, tells Electron to kill the Swift AudioCapture binary (prevents orphaned processes)
+- `session_ended` — client stops AudioCapture on receipt (no separate stop_capture message — that design raced with ws.close()). Also triggers stopCapture on ws.onclose as a safety net.
 - `swift_restart_needed` — sent when the silence watchdog fires (no audio for 5s), tells Electron to restart the Swift binary
 - `audio_level` — RMS audio level (0.0–1.0), sent ~4×/sec for the sound level indicator
 - `no_audio` — warning when no audio arrives within the first 5 seconds, or Deepgram connection fails
