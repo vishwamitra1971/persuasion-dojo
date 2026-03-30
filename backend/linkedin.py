@@ -23,7 +23,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _LINKEDIN_URL_RE = re.compile(
-    r"https?://(?:www\.)?linkedin\.com/in/[\w\-]+/?", re.IGNORECASE
+    r"https?://(?:www\.)?linkedin\.com/in/[\w\-]+/?$", re.IGNORECASE
 )
 
 # Headers that mimic a browser link-preview fetch (Googlebot-style).
@@ -118,7 +118,7 @@ async def fetch_linkedin_profile(url: str) -> str:
     if not _LINKEDIN_URL_RE.match(url):
         raise ValueError(f"Not a LinkedIn profile URL: {url}")
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+    async with httpx.AsyncClient(follow_redirects=False, timeout=10.0) as client:
         resp = await client.get(url, headers=_HEADERS)
         resp.raise_for_status()
 

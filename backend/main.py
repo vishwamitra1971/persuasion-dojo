@@ -376,16 +376,17 @@ async def lifespan(app: FastAPI):
     # ── Shutdown cleanup ──
     # Remove the named pipe so orphaned AudioCapture writers get SIGPIPE
     # and the next server start begins with a clean slate.
-    import os as _os
-    _pipe = "/tmp/persuasion_audio.pipe"
+    from backend.audio import _DEFAULT_PIPE_PATH
+    _pipe = _DEFAULT_PIPE_PATH
     try:
-        if _os.path.exists(_pipe):
-            _os.unlink(_pipe)
+        if os.path.exists(_pipe):
+            os.unlink(_pipe)
             logger.info("Lifespan shutdown: removed audio pipe %s", _pipe)
     except OSError:
         pass
     # Cancel tracked background tasks (debrief, playbook updates)
-    for task in _background_tasks:
+    # Copy the set to avoid RuntimeError if done callbacks fire during iteration.
+    for task in list(_background_tasks):
         if not task.done():
             task.cancel()
     _background_tasks.clear()
@@ -1070,11 +1071,16 @@ async def pre_seed_participant(body: PreSeedRequest) -> PreSeedResponse:
     name = body.name
 
     # LinkedIn URL flow: fetch profile text, auto-detect name
+    if body.url and not is_linkedin_url(body.url):
+        raise HTTPException(status_code=422, detail="Invalid LinkedIn URL. Expected format: https://linkedin.com/in/username")
     if body.url and is_linkedin_url(body.url):
         try:
             profile_text = await fetch_linkedin_profile(body.url)
-        except (ValueError, Exception) as exc:
+        except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"Could not fetch LinkedIn profile: {exc}")
+        except Exception:
+            logger.exception("LinkedIn fetch failed for %s", body.url)
+            raise HTTPException(status_code=422, detail="Could not fetch LinkedIn profile. The profile may be private or LinkedIn may be unavailable.")
         # Use fetched text, but append any user-provided text as extra context
         text = f"{profile_text}\n{text}" if text else profile_text
         # Auto-detect name from first line if user didn't provide one
