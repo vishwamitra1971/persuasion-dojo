@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Thompson Sampling for coaching bullet selection:** Explore/exploit optimization that balances showing proven-helpful bullets with testing under-explored ones.
 - **Per-participant convergence scoring:** Breaks down aggregate conversation convergence into per-counterpart scores, so you can see which relationships are building alignment.
 - **Flexibility-aware coaching notes:** Real-time coaching prompts now include context about whether you naturally flex across situations or tend to stay in one mode.
-- **SkillMastery model** with unique constraint on (user_id, skill_key) and conservative learning rate (P(T)=0.05).
+- **SkillMastery persistence:** Each coaching skill tracks its own learning curve per user, with a conservative learning rate (P(T)=0.05) that requires consistent evidence before marking a skill as mastered.
 
 ### Changed
 - Welford variance tracking upgraded to numerically stable M2 accumulator (stores running sum of squared deviations, derives variance on read).
