@@ -70,6 +70,20 @@ Deferred work captured from /plan-ceo-review (2026-03-25, SCOPE EXPANSION mode) 
 
 ---
 
+## P1 — Situational Flexibility Follow-ups
+
+### Wire convergence:uptake skill key to BKT
+**What:** `classify_skill_opportunity()` currently doesn't emit `convergence:uptake` observations. Convergence signals come from `signals.py` (different code path than coaching prompts). Wire the convergence signal results into BKT at session end so this skill key can track mastery.
+**Priority:** P1
+**Context:** Identified during /ship pre-landing review (2026-03-31). The skill key exists in SKILL_KEYS but never receives BKT observations, so P(know) stays at 0.1 prior forever.
+
+### Debrief UI for flexibility data
+**What:** Flexibility Score, CAPS signature, and per-participant convergence are computed but invisible to users. Need debrief view panels to surface this data.
+**Priority:** P1
+**Context:** Identified in CEO review finding #3. All the data is computed and stored, but there's no frontend to show it.
+
+---
+
 ## Deferred from CEO Plan (previously identified)
 
 - **Zoom SDK integration** — ScreenCaptureKit covers all platforms without it
