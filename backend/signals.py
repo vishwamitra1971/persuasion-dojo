@@ -650,11 +650,11 @@ def per_participant_convergence(
     for speaker in participant_speakers:
         pair_utts = [
             u for u in utterances
-            if u["speaker"] == user_speaker or u["speaker"] == speaker
+            if u.get("speaker") == user_speaker or u.get("speaker") == speaker
         ]
         # Need enough utterances from BOTH sides to compute meaningful signals
-        participant_utts = [u for u in pair_utts if u["speaker"] == speaker]
-        user_utts = [u for u in pair_utts if u["speaker"] == user_speaker]
+        participant_utts = [u for u in pair_utts if u.get("speaker") == speaker]
+        user_utts = [u for u in pair_utts if u.get("speaker") == user_speaker]
         if len(participant_utts) < min_utterances or len(user_utts) < min_utterances:
             results[speaker] = (0.0, [])
             continue
