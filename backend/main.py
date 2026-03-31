@@ -1642,6 +1642,7 @@ async def _persist_participant_classifications(
         _UPTAKE_PHRASES,
         _RESISTANCE_PHRASES,
         _classify_question,
+        per_participant_convergence,
     )
 
     all_cls = pipeline.profiler.all_classifications()
@@ -1659,6 +1660,14 @@ async def _persist_participant_classifications(
             user_utts.append(u)
         else:
             utts_by_speaker.setdefault(sid, []).append(u)
+
+    # Per-participant convergence signals (computed once, used per participant)
+    participant_speakers = [
+        sid for sid in all_cls if sid != pipeline.user_speaker
+    ]
+    per_participant_conv = per_participant_convergence(
+        pipeline.utterances, pipeline.user_speaker, participant_speakers,
+    )
 
     for speaker_id, classification in all_cls.items():
         if speaker_id == pipeline.user_speaker:
@@ -1700,6 +1709,15 @@ async def _persist_participant_classifications(
             db.add(participant)
             await db.flush()
 
+        # Per-participant convergence scores for this speaker
+        conv_data = per_participant_conv.get(speaker_id, (0.0, []))
+        conv_score_val = conv_data[0]
+        conv_signals = conv_data[1]
+        # Extract individual signal scores
+        lsm_val = next((s.score for s in conv_signals if s.signal == "language_style_matching"), None)
+        pronoun_val = next((s.score for s in conv_signals if s.signal == "pronoun_convergence"), None)
+        uptake_val = next((s.score for s in conv_signals if s.signal == "uptake_ratio"), None)
+
         # Audit trail
         db.add(SessionParticipantObservation(
             session_id=pipeline.session_id,
@@ -1710,6 +1728,10 @@ async def _persist_participant_classifications(
             archetype=classification.superpower,
             utterance_count=classification.utterance_count,
             context=context,
+            convergence_score=conv_score_val if conv_signals else None,
+            lsm_score=lsm_val,
+            pronoun_score=pronoun_val,
+            uptake_score=uptake_val,
         ))
 
         # EWMA-update behavioral profile
