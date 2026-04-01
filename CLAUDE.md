@@ -135,7 +135,7 @@ tests/
     └── pre_seeding.py        # Pre-seed classification from text/email/bio inputs
 ```
 
-Run `pytest` for the full backend suite (1020+ tests, ~45s).
+Run `pytest` for the full backend suite (1060+ tests, ~45s).
 
 ## Target user
 
