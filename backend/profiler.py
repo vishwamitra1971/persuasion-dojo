@@ -27,12 +27,13 @@ Two responsibilities
     to confidence_from_sessions). A session with < 5 user utterances contributes
     low weight to the EWMA, preventing sparse sessions from corrupting the aggregate.
 
-Signal-to-Archetype mapping (mirrors self_assessment.map_to_archetype):
+Signal-to-Archetype mapping (AND-based neutral band, looser than
+    self_assessment.map_to_archetype which uses OR logic):
     focus > 0, stance > 0  →  Inquisitor      (Logic + Advocacy)
     focus < 0, stance > 0  →  Firestarter     (Narrative + Advocacy)
     focus > 0, stance < 0  →  Architect       (Logic + Analysis)
     focus < 0, stance < 0  →  Bridge Builder  (Narrative + Analysis)
-    |focus| ≤ band OR |stance| ≤ band → Undetermined
+    |focus| ≤ band AND |stance| ≤ band → Undetermined
 """
 
 from __future__ import annotations
