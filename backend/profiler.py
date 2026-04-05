@@ -45,7 +45,7 @@ from typing import Literal
 
 from backend.models import SessionObservation
 from backend.pre_seeding import SuperpowerType
-from backend.self_assessment import map_to_archetype, NEUTRAL_BAND
+from backend.self_assessment import map_to_archetype  # noqa: F401 — used in docstring reference
 
 # Profiler-specific neutral band — tighter than self-assessment (15) because
 # regex-based signal detection on real speech is sparser and noisier than
