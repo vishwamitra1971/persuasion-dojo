@@ -47,6 +47,11 @@ from backend.models import SessionObservation
 from backend.pre_seeding import SuperpowerType
 from backend.self_assessment import map_to_archetype, NEUTRAL_BAND
 
+# Profiler-specific neutral band — tighter than self-assessment (15) because
+# regex-based signal detection on real speech is sparser and noisier than
+# Likert-scale self-assessment questions.
+_PROFILER_NEUTRAL_BAND = 10
+
 
 # ---------------------------------------------------------------------------
 # Signal pattern regexes (compiled once at import)
@@ -264,7 +269,7 @@ class ParticipantProfiler:
     def __init__(
         self,
         window_size: int = 5,
-        neutral_band: int = NEUTRAL_BAND,
+        neutral_band: int = _PROFILER_NEUTRAL_BAND,
     ) -> None:
         self._window_size = window_size
         self._neutral_band = neutral_band
@@ -353,7 +358,30 @@ class ParticipantProfiler:
     def _classify(self, speaker_id: str) -> WindowClassification:
         window = list(self._windows[speaker_id])
         focus, stance, confidence = _aggregate_signals(window)
-        superpower = map_to_archetype(focus, stance, neutral_band=self._neutral_band)
+
+        # AND-based neutral band: both axes must be ambiguous for Undetermined.
+        # This prevents single-axis speakers (e.g., pure Logic with no
+        # advocacy/analysis signals) from being stuck as Undetermined.
+        # self_assessment.map_to_archetype uses OR logic (stricter) which is
+        # appropriate for structured assessments but too aggressive for
+        # sparse real-speech regex signals.
+        focus_in_band = abs(focus) <= self._neutral_band
+        stance_in_band = abs(stance) <= self._neutral_band
+
+        if focus_in_band and stance_in_band:
+            superpower: SuperpowerType | Literal["Undetermined"] = "Undetermined"
+        else:
+            logic = focus > 0
+            advocacy = stance > 0
+            if logic and advocacy:
+                superpower = "Inquisitor"
+            elif not logic and advocacy:
+                superpower = "Firestarter"
+            elif logic and not advocacy:
+                superpower = "Architect"
+            else:
+                superpower = "Bridge Builder"
+
         return WindowClassification(
             speaker_id=speaker_id,
             superpower=superpower,
