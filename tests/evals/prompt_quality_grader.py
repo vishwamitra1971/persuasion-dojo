@@ -95,6 +95,8 @@ def _user(
         archetype=archetype,  # type: ignore[arg-type]
         focus_score=focus,
         stance_score=stance,
+        focus_variance=0.0,
+        stance_variance=0.0,
         confidence=0.72,
         context=context,
         context_sessions=5,
@@ -189,8 +191,8 @@ async def grade_prompt(
             ),
             timeout=30.0,
         )
-    except (asyncio.TimeoutError, Exception) as exc:
-        logger.warning("Sonnet grader call failed: %s", exc)
+    except asyncio.TimeoutError:
+        logger.warning("Sonnet grader timed out after 30s")
         return _ALL_FALSE
 
     raw = response.content[0].text.strip()
