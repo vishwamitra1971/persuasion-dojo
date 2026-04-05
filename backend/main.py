@@ -1697,14 +1697,14 @@ async def _persist_participant_classifications(
             name = speaker_id
 
         # Resolve identity — fuzzy match against existing profiles
-        from backend.identity import is_plausible_speaker_name, _SPEAKER_N_RE
+        from backend.identity import is_plausible_speaker_name, is_generic_speaker_id
         archetype = classification.superpower if classification.superpower != "Undetermined" else "Unknown"
         participant = await resolve_speaker(db, pipeline.user_id, name)
         if participant is None:
             # Allow real names and generic IDs (counterpart_0, speaker_1) which
             # get resolved to real names later by the speaker resolver.
             # Block garbage strings that are neither names nor generic IDs.
-            if not is_plausible_speaker_name(name) and not _SPEAKER_N_RE.match(name):
+            if not is_plausible_speaker_name(name) and not is_generic_speaker_id(name):
                 logger.debug("Skipping participant creation for non-name: %r", name)
                 continue
             participant = Participant(
@@ -2647,7 +2647,7 @@ async def retro_upload(
                             display_name = sid.replace("_", " ").title()
 
                         # Identity resolution
-                        from backend.identity import is_plausible_speaker_name, _SPEAKER_N_RE
+                        from backend.identity import is_plausible_speaker_name, is_generic_speaker_id
                         p = await resolve_speaker(db, _DEFAULT_USER_ID, display_name)
                         if p is None:
                             if not is_plausible_speaker_name(display_name) and not _SPEAKER_N_RE.match(display_name):

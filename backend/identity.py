@@ -130,6 +130,11 @@ def is_plausible_speaker_name(name: str) -> bool:
     return True
 
 
+def is_generic_speaker_id(name: str) -> bool:
+    """Return True if the name is a generic speaker/counterpart ID (e.g. speaker_0)."""
+    return bool(_SPEAKER_N_RE.match(name)) if name else False
+
+
 async def resolve_speaker(
     db: AsyncSession,
     user_id: str,
