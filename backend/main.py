@@ -1457,8 +1457,13 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
 
         return _on_audio_chunk
 
+    _dual_pipe_mode = os.path.exists(_DEFAULT_MIC_PIPE_PATH)
+
     _on_mic_chunk = _make_audio_chunk_handler(mic_transcriber, "mic", is_mic=True)
-    _on_system_chunk = _make_audio_chunk_handler(system_transcriber, "system", is_mic=False)
+    # In single-pipe mode, system handler also meters audio levels
+    _on_system_chunk = _make_audio_chunk_handler(
+        system_transcriber, "system", is_mic=not _dual_pipe_mode,
+    )
 
     # Dual readers: mic pipe (no silence watchdog) + system pipe (with watchdog)
     system_reader = AudioPipeReader(
@@ -1466,7 +1471,6 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
         on_silence_timeout=_on_silence,
     )
     mic_reader: AudioPipeReader | None = None
-    _dual_pipe_mode = os.path.exists(_DEFAULT_MIC_PIPE_PATH)
 
     if _dual_pipe_mode:
         mic_reader = AudioPipeReader(

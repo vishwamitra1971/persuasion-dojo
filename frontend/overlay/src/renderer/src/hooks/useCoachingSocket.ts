@@ -55,6 +55,8 @@ export interface CoachingSocketState {
   speakerNames: Record<string, string>;
   /** Profiles detected during the session. */
   detectedProfiles: DetectedProfile[];
+  /** Active transcription backend: "cloud" (Deepgram), "local" (Moonshine), or null if unknown. */
+  transcriptionBackend: "cloud" | "local" | null;
 }
 
 export interface SessionParticipant {
@@ -90,6 +92,7 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
   const [transcripts, setTranscripts]       = useState<TranscriptEntry[]>([]);
   const [speakerNames, setSpeakerNames]     = useState<Record<string, string>>({});
   const [detectedProfiles, setDetectedProfiles] = useState<DetectedProfile[]>([]);
+  const [transcriptionBackend, setTranscriptionBackend] = useState<"cloud" | "local" | null>(null);
 
   const wsRef       = useRef<WebSocket | null>(null);
   const pingRef     = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -125,6 +128,7 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
     setTranscripts([]);
     setSessionResult(null);
     setErrorMessage(null);
+    setTranscriptionBackend(null);
 
     let id: string;
     try {
@@ -189,6 +193,16 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
 
       if (msg.type === "audio_level") {
         setAudioLevel(msg.level as number);
+        return;
+      }
+
+      if (msg.type === "transcriber_status") {
+        const event = msg.event as string;
+        if (event === "using_cloud") {
+          setTranscriptionBackend("cloud");
+        } else if (event === "using_local" || event === "fallback_activated") {
+          setTranscriptionBackend("local");
+        }
         return;
       }
 
@@ -313,6 +327,7 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
     setTranscripts([]);
     setErrorMessage(null);
     setAudioLevel(0);
+    setTranscriptionBackend(null);
     setSpeakerNames({});
     setDetectedProfiles([]);
     updatePhase("idle");
@@ -351,6 +366,7 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
     transcripts,
     speakerNames,
     detectedProfiles,
+    transcriptionBackend,
     startSession,
     endSession,
     dismissPrompt,

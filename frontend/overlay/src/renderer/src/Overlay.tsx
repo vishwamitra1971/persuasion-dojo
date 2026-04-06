@@ -172,6 +172,7 @@ export function Overlay(): React.ReactElement {
   const {
     sessionId: liveSessionId, connectionState, sessionPhase, currentPrompt, prompts, sessionResult,
     errorMessage, audioLevel, transcripts, speakerNames, detectedProfiles,
+    transcriptionBackend,
     startSession, endSession, dismissPrompt, clearError, resetSession, confirmProfile,
   } = useCoachingSocket();
 
@@ -1309,6 +1310,27 @@ export function Overlay(): React.ReactElement {
                 );
               })}
             </div>
+            {/* Transcription backend indicator */}
+            {transcriptionBackend && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                marginLeft: 8, padding: "2px 8px",
+                borderRadius: 10, fontSize: 10, fontWeight: 500,
+                fontFamily: MONO, letterSpacing: 0.3, textTransform: "uppercase",
+                background: transcriptionBackend === "cloud"
+                  ? "rgba(90, 158, 111, 0.12)"
+                  : "rgba(212, 168, 83, 0.12)",
+                color: transcriptionBackend === "cloud"
+                  ? "var(--green)"
+                  : "var(--gold)",
+              }}>
+                <span style={{
+                  width: 5, height: 5, borderRadius: "50%",
+                  background: transcriptionBackend === "cloud" ? "var(--green)" : "var(--gold)",
+                }} />
+                {transcriptionBackend === "cloud" ? "Cloud" : "Local"}
+              </span>
+            )}
             {meetingName && <span style={{ fontSize: 13, color: "var(--text-secondary)", marginLeft: 6 }}>{meetingName}</span>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
