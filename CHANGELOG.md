@@ -11,7 +11,12 @@ All notable changes to this project will be documented in this file.
 - Post-session debrief: generates per-participant relationship summaries, pairing dynamics, and retro coaching bullets fed back into the ACE coaching store.
 - `classify_from_scores()` extracted as a public function in `profiler.py`, eliminating 3x duplication of quadrant classification logic.
 - Frontend coaching cards show per-person badges with counterpart name and archetype.
-- 30 signal chain tests covering the full audio-to-coaching pipeline, archetype classification, debrief cap, and retro bullet persistence.
+- Echo filter prevents your own voice (picked up by ScreenCaptureKit on system audio) from creating false counterpart utterances. Uses word overlap against recent mic transcripts.
+- 50 tests covering the full signal chain, echo filter, archetype classification, debrief cap, retro bullets, and plain-English prompt verification.
+
+### Changed
+- Coaching prompts now use plain English instead of academic terminology. "They feel attacked" instead of "Central Route shut down." The underlying ELM detection logic is unchanged.
+- Post-session debriefs use the same plain language ("thinking it through", "going along", "defensive") instead of ELM framework terms.
 
 ### Fixed
 - Race condition in observer signal snapshot: signals list is now copied before iteration to prevent modification during async processing.
