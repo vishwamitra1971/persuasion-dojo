@@ -251,7 +251,7 @@ class SessionPipeline:
         Triggers every 5th user utterance so the coaching engine can use the
         user's actual style (not just "Unknown" or a stale pre-set value).
         """
-        from backend.profiler import _aggregate_signals, _score_utterance, _PROFILER_NEUTRAL_BAND, classify_from_scores
+        from backend.profiler import _aggregate_signals, _PROFILER_NEUTRAL_BAND, classify_from_scores
 
         signals = list(self.observer._signals)  # snapshot to avoid mutation during iteration
         if not signals:
@@ -330,6 +330,9 @@ async def _auto_seed_from_calendar() -> list[dict]:
     attendee found. If calendar is not connected or no current meeting is found,
     returns an empty list.
     """
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)  # capture before async call to avoid drift
+
     svc = _get_calendar_service()
     if svc is None:
         return []
@@ -341,9 +344,6 @@ async def _auto_seed_from_calendar() -> list[dict]:
 
     if not meetings:
         return []
-
-    from datetime import datetime, timedelta, timezone
-    now = datetime.now(timezone.utc)
 
     # Find a meeting that is currently happening or starts within 15 minutes
     best = None
