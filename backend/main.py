@@ -140,7 +140,7 @@ def is_echo(text: str, recent_mic_texts: collections.deque[str], threshold: floa
     if not text.strip() or not recent_mic_texts:
         return False
     words = set(text.lower().split())
-    if len(words) < 2:
+    if len(words) < 3:
         return False
     for mic_text in recent_mic_texts:
         mic_words = set(mic_text.lower().split())
@@ -2364,9 +2364,9 @@ async def _generate_session_debrief(
         "- Firestarter: Narrative + Advocate. Energy-driven, inspires through story.\n"
         "- Inquisitor: Logic + Advocate. Questions everything, needs evidence.\n"
         "- Bridge Builder: Narrative + Analyze. Reads the room, builds consensus.\n\n"
-        "ELM context: Central Route = processing through logic/evidence. "
-        "Peripheral Route = responding to cues/authority/social proof. "
-        "Ego-threatened = Central Route shut down, defensive.\n\n"
+        "Engagement states: 'thinking it through' = weighing evidence and logic. "
+        "'going along' = agreeing based on cues, authority, or social proof without deep thought. "
+        "'defensive' = feeling personally attacked, unable to process logic.\n\n"
         f"USER ARCHETYPE: {user_archetype}\n\n"
         f"SCORES\n{score_summary}\n\n"
         f"{participant_section}"
@@ -2379,14 +2379,14 @@ async def _generate_session_debrief(
         "1. PARTICIPANT MAP (2-3 sentences per person)\n"
         "For each participant: their archetype, how they showed up in this meeting "
         "(data-driven, narrative-driven, defensive, collaborative), and their "
-        "processing mode (Central Route, Peripheral Route, or ego-threatened).\n\n"
+        "engagement state (thinking it through, going along, or defensive).\n\n"
         "2. INTERACTION ANALYSIS (2-3 sentences per person)\n"
         "How did you interact with each participant? What worked (convergence, "
         "uptake moments) and what didn't (resistance, ego-threat triggers)? "
         "Explain the archetype pairing dynamic at play.\n\n"
         "3. KEY MOMENTS (2-3 specific moments)\n"
         "Each moment must name the specific participant and explain the "
-        "archetype-driven reason it mattered. What processing mode were they in "
+        "archetype-driven reason it mattered. Were they thinking it through, going along, or defensive? "
         "and how did you respond?\n\n"
         "4. WHAT YOU DID WELL (2-3 specific examples)\n"
         "Reinforce good practices. Cite specific moments where you read the room "
@@ -3209,9 +3209,9 @@ async def _generate_retro_debrief(
         "- Firestarter: Narrative + Advocate. Energy-driven, inspires through story.\n"
         "- Inquisitor: Logic + Advocate. Questions everything, needs evidence.\n"
         "- Bridge Builder: Narrative + Analyze. Reads the room, builds consensus.\n\n"
-        "ELM context: Central Route = processing through logic/evidence. "
-        "Peripheral Route = responding to cues/authority/social proof. "
-        "Ego-threatened = Central Route shut down, defensive.\n\n"
+        "Engagement states: 'thinking it through' = weighing evidence and logic. "
+        "'going along' = agreeing based on cues, authority, or social proof without deep thought. "
+        "'defensive' = feeling personally attacked, unable to process logic.\n\n"
         f"SCORES\n{score_summary}\n\n"
         f"{participant_section}"
         f"SPEAKERS: {len(speakers)} total ({len(non_user_speakers)} counterparts)\n\n"
@@ -3222,14 +3222,14 @@ async def _generate_retro_debrief(
         "1. PARTICIPANT MAP (2-3 sentences per person)\n"
         "For each participant: their archetype, how they showed up in this meeting "
         "(data-driven, narrative-driven, defensive, collaborative), and their "
-        "processing mode (Central Route, Peripheral Route, or ego-threatened).\n\n"
+        "engagement state (thinking it through, going along, or defensive).\n\n"
         "2. INTERACTION ANALYSIS (2-3 sentences per person)\n"
         "How did you interact with each participant? What worked (convergence, "
         "uptake moments) and what didn't (resistance, ego-threat triggers)? "
         "Explain the archetype pairing dynamic at play.\n\n"
         "3. KEY MOMENTS (2-3 specific moments)\n"
         "Each moment must name the specific participant and explain the "
-        "archetype-driven reason it mattered. What processing mode were they in "
+        "archetype-driven reason it mattered. Were they thinking it through, going along, or defensive? "
         "and how did you respond?\n\n"
         "4. WHAT YOU DID WELL (2-3 specific examples)\n"
         "Reinforce good practices. Cite specific moments where you read the room "

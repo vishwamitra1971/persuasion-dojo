@@ -691,8 +691,13 @@ class TestIsEcho:
         mic = collections.deque(["The Quick Brown Fox"], maxlen=10)
         assert is_echo("the quick brown fox", mic) is True
 
+    def test_short_utterance_not_filtered(self):
+        """Utterances under 3 words are too short to match reliably."""
+        from backend.main import is_echo
+        mic = collections.deque(["hello world"], maxlen=10)
+        assert is_echo("hello world", mic) is False
+
     def test_single_word_not_filtered(self):
-        """Single-word utterances are too short to match reliably."""
         from backend.main import is_echo
         mic = collections.deque(["hello"], maxlen=10)
         assert is_echo("hello", mic) is False

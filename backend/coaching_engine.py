@@ -317,7 +317,7 @@ class CoachingEngine:
         )
 
         user_msg = (
-            f"Counterpart: {counterpart_label} ({state_desc})\n"
+            f"Counterpart: {counterpart_label} — {state_desc}\n"
             f"What's happening: {route_note}\n"
             f'What they just said: "{evidence_text}"\n'
             f"You ({user_type}) → {counterpart_label}: {pairing_note}\n"
