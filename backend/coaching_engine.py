@@ -54,8 +54,9 @@ _SYSTEM_PROMPT = (
     "Peripheral Route = responding to cues/authority/social proof. "
     "Ego-threatened = Central Route shut down, defensive.\n\n"
     "Output EXACTLY ONE coaching tip. Format: a short WHY clause (≤8 words, "
-    "naming the dynamic) followed by a dash and the ACTION (≤12 words, verb-first imperative). "
-    "Example: 'She's in Central Route — anchor your next point in a number.'\n"
+    "naming the specific person and dynamic) followed by a dash and the ACTION (≤12 words, verb-first imperative). "
+    "Always name the specific person in your tip when a name is provided. "
+    "Example: 'Sarah's in Central Route — anchor your next point in a number.'\n"
     "No preamble, no labels, no quotes. Output only the tip."
 )
 
@@ -195,6 +196,14 @@ class CoachingEngine:
         # Bullet IDs from the most recent context selection (set per prompt cycle)
         self._last_bullet_ids: str = ""
 
+    @property
+    def user_archetype(self) -> str:
+        return self._user_archetype
+
+    @user_archetype.setter
+    def user_archetype(self, value: str) -> None:
+        self._user_archetype = value
+
     # ------------------------------------------------------------------
     # Core processor
     # ------------------------------------------------------------------
@@ -272,18 +281,7 @@ class CoachingEngine:
         goal = _ELM_COACHING_GOAL.get(state, "improve the conversation")
 
         # Build counterpart-specific advice based on archetype pairing + effectiveness + fingerprint
-        counterpart_name = ""
-        if participant:
-            # Try to find the name from participants list by speaker index
-            try:
-                if event.speaker_id.startswith("counterpart_"):
-                    idx = int(event.speaker_id.replace("counterpart_", ""))
-                else:
-                    idx = int(event.speaker_id.replace("speaker_", "")) - 1
-                if 0 <= idx < len(self._participants):
-                    counterpart_name = self._participants[idx].get("name", "")
-            except (ValueError, IndexError):
-                pass
+        counterpart_name = self._resolve_speaker_name(event.speaker_id)
         pairing_note = self._enriched_pairing_advice(counterpart_type, counterpart_name)
 
         # Include learned coaching context from prior sessions (ACE bullet store)
@@ -308,14 +306,20 @@ class CoachingEngine:
         else:
             route_note = ""
 
+        # Build counterpart label: "Sarah (Architect)" or just "Architect" if no name
+        counterpart_label = (
+            f"{counterpart_name} ({counterpart_type})" if counterpart_name
+            else counterpart_type
+        )
+
         user_msg = (
-            f"Counterpart: {counterpart_type} ({state_desc})\n"
+            f"Counterpart: {counterpart_label} ({state_desc})\n"
             f"Processing route: {route_note}\n"
             f'What just happened: "{evidence_text}"\n'
-            f"You ({user_type}) → them ({counterpart_type}): {pairing_note}\n"
+            f"You ({user_type}) → {counterpart_label}: {pairing_note}\n"
             f"Goal: {goal}\n"
             f"{playbook_section}"
-            "Give a coaching tip that names the dynamic and tells me exactly what to do:"
+            f"Give a coaching tip that names {counterpart_name or 'the counterpart'} and tells me exactly what to do:"
         )
         return await self._call_haiku(
             "audience", user_msg, f"elm:{state}", event.speaker_id
@@ -335,6 +339,7 @@ class CoachingEngine:
         )
         context = user.context if user else "meeting"
         counterpart_type = participant.superpower if participant else "Unknown"
+        counterpart_name = self._resolve_speaker_name(participant.speaker_id) if participant else ""
 
         # Mention context shift when the user's style differs by meeting type
         shift_note = ""
@@ -361,7 +366,11 @@ class CoachingEngine:
             for u in recent_transcript[-8:]:
                 speaker = u.get("speaker", "?")
                 text = u.get("text", "")[:120]
-                label = "You" if speaker == self._user_speaker else speaker
+                if speaker == self._user_speaker:
+                    label = "You"
+                else:
+                    resolved = self._resolve_speaker_name(speaker)
+                    label = resolved if resolved else speaker
                 lines.append(f"  {label}: {text}")
             transcript_section = (
                 "Recent conversation:\n" + "\n".join(lines) + "\n\n"
@@ -409,10 +418,10 @@ class CoachingEngine:
             f"Meeting context: {context}\n"
             f"You are a {user_type}{shift_note}.\n"
             + (f"{flex_note}\n" if flex_note else "")
-            + f"Primary counterpart: {counterpart_type}\n\n"
+            + f"Primary counterpart: {f'{counterpart_name} ({counterpart_type})' if counterpart_name else counterpart_type}\n\n"
             "Read the conversation flow. What processing mode is the room in "
             "(Central Route / Peripheral Route)? Is anyone ego-threatened or "
-            "checked out? Give ONE coaching tip that names the dynamic and "
+            "checked out? Give ONE coaching tip that names the specific person and "
             "tells me exactly what to do right now:"
         )
         return await self._call_haiku("self", user_msg, "cadence:self", "")
@@ -454,8 +463,33 @@ class CoachingEngine:
         return None
 
     # ------------------------------------------------------------------
-    # Participant lookup
+    # Speaker name + archetype resolution
     # ------------------------------------------------------------------
+
+    def _resolve_speaker_name(self, speaker_id: str) -> str:
+        """
+        Resolve a speaker_id to a human name from the participants list.
+
+        Tries: (1) direct speaker_id match, (2) index-based lookup.
+        Returns "" if no name can be resolved.
+        """
+        if not self._participants:
+            return ""
+        # Direct match by speaker_id field
+        for p in self._participants:
+            if p.get("speaker_id") == speaker_id:
+                return p.get("name", "")
+        # Index-based matching
+        try:
+            if speaker_id.startswith("counterpart_"):
+                idx = int(speaker_id.replace("counterpart_", ""))
+            else:
+                idx = int(speaker_id.replace("speaker_", "")) - 1
+            if 0 <= idx < len(self._participants):
+                return self._participants[idx].get("name", "")
+        except (ValueError, IndexError):
+            pass
+        return ""
 
     def _lookup_participant(self, speaker_id: str) -> str:
         """Look up a participant's archetype from pre-seeded data by speaker ID or index."""
