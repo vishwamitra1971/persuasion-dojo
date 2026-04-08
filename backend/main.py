@@ -43,6 +43,7 @@ Server → client:
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -128,6 +129,27 @@ from backend.transcriber_protocol import Transcriber
 _DEFAULT_USER_ID = "local-user"        # single-user V1 app
 _USER_SPEAKER_ID = "user"              # deterministic — mic pipe guarantees this
 _DEFAULT_MIC_PIPE_PATH = "/tmp/persuasion_mic.pipe"
+
+
+def is_echo(text: str, recent_mic_texts: collections.deque[str], threshold: float = 0.6) -> bool:
+    """Return True if text overlaps significantly with recent mic utterances.
+
+    Used to filter out the user's own voice picked up by ScreenCaptureKit
+    on the system audio stream.
+    """
+    if not text.strip() or not recent_mic_texts:
+        return False
+    words = set(text.lower().split())
+    if len(words) < 2:
+        return False
+    for mic_text in recent_mic_texts:
+        mic_words = set(mic_text.lower().split())
+        if not mic_words:
+            continue
+        overlap = len(words & mic_words) / max(len(words), 1)
+        if overlap >= threshold:
+            return True
+    return False
 
 # In-memory sparring sessions (no DB persistence — text-only practice mode).
 _sparring_sessions: dict[str, SparringSession] = {}
@@ -1403,12 +1425,20 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
     # Track which speakers have been notified to the frontend as detected profiles
     _notified_profiles: set[str] = set()
 
+    # ── Echo filter: prevent user's voice on system audio from creating
+    #    false counterpart utterances. ScreenCaptureKit picks up all audio
+    #    including the user's own voice from the call. We keep a small ring
+    #    of recent mic texts and drop system utterances with high overlap.
+    _recent_mic_texts: collections.deque[str] = collections.deque(maxlen=10)
+
     # ── Audio pipeline (dual-pipe: mic + system) ──────────────────────
 
     async def _on_mic_utterance(
         speaker_id: str, text: str, is_final: bool, start_s: float, end_s: float
     ) -> None:
         """Mic stream = always the user. Override speaker_id."""
+        if is_final and text.strip():
+            _recent_mic_texts.append(text)
         await _handle_utterance(
             ws, pipeline,
             {"speaker_id": _USER_SPEAKER_ID, "text": text,
@@ -1419,6 +1449,10 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
         speaker_id: str, text: str, is_final: bool, start_s: float, end_s: float
     ) -> None:
         """System audio = counterparts. Prefix to distinguish from user."""
+        # Drop utterances that are echoes of the user's own mic audio
+        if is_echo(text, _recent_mic_texts):
+            logger.debug("Echo filter: dropped system utterance matching mic: %s", text[:60])
+            return
         prefixed_id = speaker_id.replace("speaker_", "counterpart_")
         await _handle_utterance(
             ws, pipeline,

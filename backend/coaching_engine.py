@@ -46,18 +46,22 @@ CoachingLayer = Literal["self", "audience", "group"]
 _SYSTEM_PROMPT = (
     "You are a $500/hr executive communication coach embedded in a live meeting overlay. "
     "You use the Communicator Superpower framework:\n"
-    "- Architect (Logic+Analyze): needs data, structure, evidence before moving.\n"
-    "- Firestarter (Narrative+Advocate): leads with energy, story, vision.\n"
-    "- Inquisitor (Logic+Advocate): challenges everything, needs proof.\n"
-    "- Bridge Builder (Narrative+Analyze): reads the room, builds consensus.\n\n"
-    "ELM context: Central Route = processing through logic/evidence. "
-    "Peripheral Route = responding to cues/authority/social proof. "
-    "Ego-threatened = Central Route shut down, defensive.\n\n"
-    "Output EXACTLY ONE coaching tip. Format: a short WHY clause (≤8 words, "
-    "naming the specific person and dynamic) followed by a dash and the ACTION (≤12 words, verb-first imperative). "
+    "- Architect: needs data, structure, evidence before moving.\n"
+    "- Firestarter: leads with energy, story, vision.\n"
+    "- Inquisitor: challenges everything, needs proof.\n"
+    "- Bridge Builder: reads the room, builds consensus.\n\n"
+    "Output EXACTLY ONE coaching tip in plain, simple English. "
+    "No jargon, no academic terms, no framework labels. "
+    "Write like you're texting a friend quick advice during a meeting.\n\n"
+    "Format: a short WHY clause (≤8 words, "
+    "naming the specific person) followed by a dash and the ACTION (≤12 words, verb-first imperative). "
     "Always name the specific person in your tip when a name is provided. "
-    "Example: 'Sarah's in Central Route — anchor your next point in a number.'\n"
-    "No preamble, no labels, no quotes. Output only the tip."
+    "Example: 'Sarah needs proof — lead with a specific number.'\n"
+    "Example: 'Mike is getting defensive — acknowledge his point first, then redirect.'\n"
+    "Example: 'The group is going along to get along — ask what concerns haven't been raised.'\n"
+    "No preamble, no labels, no quotes. Never use terms like 'ego safety', "
+    "'peripheral route', 'central route', 'ELM', 'cognitive load', or 'processing mode'. "
+    "Output only the tip."
 )
 
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
@@ -66,15 +70,15 @@ _FLEX_NOTE_ENABLED = True  # Killswitch: set False to suppress flexibility notes
 
 # Human-readable labels for ELM states used in prompts
 _ELM_STATE_DESCRIPTION: dict[str, str] = {
-    "ego_threat": "defensive / identity-threatened",
-    "shortcut": "agreeing without real engagement",
-    "consensus_protection": "closing down dissent prematurely",
+    "ego_threat": "getting defensive, feels personally attacked",
+    "shortcut": "nodding along but not actually engaged",
+    "consensus_protection": "shutting down disagreement too early",
 }
 
 _ELM_COACHING_GOAL: dict[str, str] = {
-    "ego_threat": "de-escalate and restore psychological safety",
-    "shortcut": "invite real engagement and surface their concerns",
-    "consensus_protection": "open up space for healthy dissent",
+    "ego_threat": "make them feel heard so they can think clearly again",
+    "shortcut": "get them to share what they really think",
+    "consensus_protection": "make it safe for someone to disagree",
 }
 
 
@@ -296,13 +300,13 @@ class CoachingEngine:
             if bullet_ids:
                 self._last_bullet_ids = ",".join(bullet_ids)
 
-        # Determine processing route from ELM state
+        # Plain-English situation description (no academic jargon)
         if state == "ego_threat":
-            route_note = "Their Central Route is SHUT DOWN — logic won't land. You need to restore safety first."
+            route_note = "They feel attacked — logic won't land right now. Acknowledge their point first."
         elif state == "shortcut":
-            route_note = "They're in Peripheral Route — agreeing on autopilot, not actually processing. Surface something real."
+            route_note = "They're agreeing on autopilot, not actually thinking it through. Ask something specific."
         elif state == "consensus_protection":
-            route_note = "The group is suppressing dissent — someone has a concern they're not voicing. Create space."
+            route_note = "The group is rushing to agree — someone has a concern they're not saying. Make space."
         else:
             route_note = ""
 
@@ -314,12 +318,12 @@ class CoachingEngine:
 
         user_msg = (
             f"Counterpart: {counterpart_label} ({state_desc})\n"
-            f"Processing route: {route_note}\n"
-            f'What just happened: "{evidence_text}"\n'
+            f"What's happening: {route_note}\n"
+            f'What they just said: "{evidence_text}"\n'
             f"You ({user_type}) → {counterpart_label}: {pairing_note}\n"
             f"Goal: {goal}\n"
             f"{playbook_section}"
-            f"Give a coaching tip that names {counterpart_name or 'the counterpart'} and tells me exactly what to do:"
+            f"Give a plain-English coaching tip that names {counterpart_name or 'the counterpart'} and tells me exactly what to do:"
         )
         return await self._call_haiku(
             "audience", user_msg, f"elm:{state}", event.speaker_id
@@ -419,10 +423,9 @@ class CoachingEngine:
             f"You are a {user_type}{shift_note}.\n"
             + (f"{flex_note}\n" if flex_note else "")
             + f"Primary counterpart: {f'{counterpart_name} ({counterpart_type})' if counterpart_name else counterpart_type}\n\n"
-            "Read the conversation flow. What processing mode is the room in "
-            "(Central Route / Peripheral Route)? Is anyone ego-threatened or "
-            "checked out? Give ONE coaching tip that names the specific person and "
-            "tells me exactly what to do right now:"
+            "Read the conversation flow. Is anyone defensive, checked out, or "
+            "just going along to be polite? Give ONE coaching tip in plain English that "
+            "names the specific person and tells me exactly what to do right now:"
         )
         return await self._call_haiku("self", user_msg, "cadence:self", "")
 

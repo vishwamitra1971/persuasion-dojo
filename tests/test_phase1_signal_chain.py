@@ -14,6 +14,7 @@ Coverage:
 from __future__ import annotations
 
 import asyncio
+import collections
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -654,3 +655,135 @@ class TestRetroCoachingBullets:
             with patch("backend.main.get_db_session", side_effect=RuntimeError("db error")):
                 # Should not raise
                 await _update_retro_coaching_bullets("s1", "Unknown", {}, [])
+
+
+# ---------------------------------------------------------------------------
+# Echo filter (transcript-level dedup for ScreenCaptureKit echo)
+# ---------------------------------------------------------------------------
+
+class TestIsEcho:
+    """Tests for backend.main.is_echo — prevents user voice on system audio."""
+
+    def test_exact_duplicate_is_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["the quick brown fox jumps"], maxlen=10)
+        assert is_echo("the quick brown fox jumps", mic) is True
+
+    def test_high_overlap_is_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["the quick brown fox jumps over"], maxlen=10)
+        # 4 of 5 words overlap = 80%
+        assert is_echo("the quick brown fox leaps", mic) is True
+
+    def test_low_overlap_is_not_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["the quick brown fox"], maxlen=10)
+        # Only 1 of 4 words overlap = 25%
+        assert is_echo("something entirely different today", mic) is False
+
+    def test_no_overlap_is_not_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["hello world testing"], maxlen=10)
+        assert is_echo("goodbye moon production", mic) is False
+
+    def test_case_insensitive(self):
+        from backend.main import is_echo
+        mic = collections.deque(["The Quick Brown Fox"], maxlen=10)
+        assert is_echo("the quick brown fox", mic) is True
+
+    def test_single_word_not_filtered(self):
+        """Single-word utterances are too short to match reliably."""
+        from backend.main import is_echo
+        mic = collections.deque(["hello"], maxlen=10)
+        assert is_echo("hello", mic) is False
+
+    def test_empty_text_not_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["hello world"], maxlen=10)
+        assert is_echo("", mic) is False
+
+    def test_whitespace_text_not_echo(self):
+        from backend.main import is_echo
+        mic = collections.deque(["hello world"], maxlen=10)
+        assert is_echo("   \n  ", mic) is False
+
+    def test_empty_deque_not_echo(self):
+        from backend.main import is_echo
+        mic: collections.deque[str] = collections.deque(maxlen=10)
+        assert is_echo("hello world", mic) is False
+
+    def test_matches_any_recent_mic(self):
+        """Should match against any of the stored mic utterances."""
+        from backend.main import is_echo
+        mic = collections.deque([
+            "completely different sentence here",
+            "the quick brown fox jumps",
+            "another unrelated phrase today",
+        ], maxlen=10)
+        assert is_echo("the quick brown fox jumps", mic) is True
+
+    def test_custom_threshold(self):
+        from backend.main import is_echo
+        mic = collections.deque(["alpha beta gamma delta"], maxlen=10)
+        # 2 of 4 = 50%, below default 0.6 but above 0.4
+        assert is_echo("alpha beta other words", mic, threshold=0.4) is True
+        assert is_echo("alpha beta other words", mic, threshold=0.6) is False
+
+    def test_deque_maxlen_evicts_old(self):
+        """Oldest entries should be evicted when deque is full."""
+        from backend.main import is_echo
+        mic: collections.deque[str] = collections.deque(maxlen=3)
+        mic.append("alpha bravo charlie delta")
+        mic.append("echo foxtrot golf hotel")
+        mic.append("india juliet kilo lima")
+        mic.append("mike november oscar papa")  # evicts "alpha bravo..."
+        assert is_echo("alpha bravo charlie delta", mic) is False
+        assert is_echo("mike november oscar papa", mic) is True
+
+
+# ---------------------------------------------------------------------------
+# Coaching prompt: plain English, no jargon
+# ---------------------------------------------------------------------------
+
+class TestCoachingPlainEnglish:
+    """Verify coaching prompts use plain language, not academic jargon."""
+
+    def test_system_prompt_bans_jargon(self):
+        """System prompt explicitly forbids ELM terminology."""
+        from backend.coaching_engine import _SYSTEM_PROMPT
+        assert "ego safety" in _SYSTEM_PROMPT.lower() or "Never use terms like" in _SYSTEM_PROMPT
+        assert "peripheral route" not in _SYSTEM_PROMPT.split("Never use terms like")[0]
+        assert "central route" not in _SYSTEM_PROMPT.split("Never use terms like")[0]
+
+    def test_system_prompt_requests_plain_english(self):
+        from backend.coaching_engine import _SYSTEM_PROMPT
+        assert "plain" in _SYSTEM_PROMPT.lower()
+        assert "jargon" in _SYSTEM_PROMPT.lower()
+
+    def test_elm_descriptions_no_jargon(self):
+        from backend.coaching_engine import _ELM_STATE_DESCRIPTION
+        for state, desc in _ELM_STATE_DESCRIPTION.items():
+            assert "central route" not in desc.lower(), f"{state} uses 'central route'"
+            assert "peripheral route" not in desc.lower(), f"{state} uses 'peripheral route'"
+            assert "ego safety" not in desc.lower(), f"{state} uses 'ego safety'"
+
+    def test_elm_goals_no_jargon(self):
+        from backend.coaching_engine import _ELM_COACHING_GOAL
+        for state, goal in _ELM_COACHING_GOAL.items():
+            assert "psychological safety" not in goal.lower(), f"{state} goal uses jargon"
+            assert "central route" not in goal.lower()
+
+    def test_ego_threat_description_plain(self):
+        from backend.coaching_engine import _ELM_STATE_DESCRIPTION
+        desc = _ELM_STATE_DESCRIPTION["ego_threat"]
+        assert "defensive" in desc.lower()
+
+    def test_shortcut_description_plain(self):
+        from backend.coaching_engine import _ELM_STATE_DESCRIPTION
+        desc = _ELM_STATE_DESCRIPTION["shortcut"]
+        assert "nodding" in desc.lower() or "not" in desc.lower()
+
+    def test_consensus_protection_description_plain(self):
+        from backend.coaching_engine import _ELM_STATE_DESCRIPTION
+        desc = _ELM_STATE_DESCRIPTION["consensus_protection"]
+        assert "disagreement" in desc.lower() or "shutting" in desc.lower()
