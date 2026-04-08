@@ -27,6 +27,7 @@ from backend.profiler import (
     WindowClassification,
     _aggregate_signals,
     _PROFILER_NEUTRAL_BAND,
+    classify_from_scores,
 )
 
 
@@ -446,3 +447,210 @@ class TestDebriefReinforcement:
             # Prompt should explicitly ask for reinforcement of good practices
             assert "WHAT YOU DID WELL" in prompt
             assert "Reinforce good practices" in prompt
+
+
+# ---------------------------------------------------------------------------
+# classify_from_scores: all 4 quadrants
+# ---------------------------------------------------------------------------
+
+class TestClassifyFromScores:
+    """Direct unit tests for the extracted classify_from_scores() function."""
+
+    def test_logic_advocacy_is_inquisitor(self):
+        assert classify_from_scores(50.0, 30.0) == "Inquisitor"
+
+    def test_narrative_advocacy_is_firestarter(self):
+        assert classify_from_scores(-40.0, 20.0) == "Firestarter"
+
+    def test_logic_analysis_is_architect(self):
+        assert classify_from_scores(60.0, -25.0) == "Architect"
+
+    def test_narrative_analysis_is_bridge_builder(self):
+        assert classify_from_scores(-30.0, -50.0) == "Bridge Builder"
+
+    def test_zero_focus_positive_stance(self):
+        # focus=0 means NOT logic (logic = focus > 0), so Firestarter
+        assert classify_from_scores(0.0, 10.0) == "Firestarter"
+
+    def test_zero_stance_positive_focus(self):
+        # stance=0 means NOT advocacy (advocacy = stance > 0), so Architect
+        assert classify_from_scores(10.0, 0.0) == "Architect"
+
+
+# ---------------------------------------------------------------------------
+# CoachingEngine.user_archetype property
+# ---------------------------------------------------------------------------
+
+class TestUserArchetypeProperty:
+    """Verify user_archetype getter/setter encapsulation."""
+
+    def test_getter(self):
+        engine = CoachingEngine.__new__(CoachingEngine)
+        engine._user_archetype = "Architect"
+        assert engine.user_archetype == "Architect"
+
+    def test_setter(self):
+        engine = CoachingEngine.__new__(CoachingEngine)
+        engine._user_archetype = "Unknown"
+        engine.user_archetype = "Firestarter"
+        assert engine.user_archetype == "Firestarter"
+        assert engine._user_archetype == "Firestarter"
+
+
+# ---------------------------------------------------------------------------
+# Debrief participant cap at 10
+# ---------------------------------------------------------------------------
+
+class TestDebriefParticipantCap:
+    """Verify debrief prompt caps participants at 10, sorted by utterance_count."""
+
+    @pytest.mark.asyncio
+    async def test_session_debrief_caps_at_10_participants(self):
+        from backend.main import _generate_session_debrief
+
+        # Create 15 participants with varying utterance counts
+        participants = [
+            {
+                "speaker_id": f"spk_{i}",
+                "name": f"Person {i}",
+                "archetype": "Architect",
+                "confidence": 0.8,
+                "focus_score": 50.0,
+                "stance_score": -20.0,
+                "utterance_count": i * 3,  # 0,3,6,...,42
+                "key_evidence": [],
+                "elm_episodes": [],
+            }
+            for i in range(15)
+        ]
+
+        utterances = [{"speaker": "user", "text": "Test"}]
+        scores = {"persuasion_score": 70, "timing_score": 20, "ego_safety_score": 20, "convergence_score": 30}
+
+        with patch("backend.main._anthropic.AsyncAnthropic") as mock_cls:
+            content = MagicMock()
+            content.text = "Debrief."
+            response = MagicMock()
+            response.content = [content]
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(return_value=response)
+            mock_cls.return_value = mock_client
+
+            with patch("backend.main._load_settings", return_value={"anthropic_api_key": "k"}):
+                with patch("backend.main.get_db_session") as mock_db:
+                    mock_session = AsyncMock()
+                    mock_session.get = AsyncMock(return_value=MagicMock())
+                    mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+                    mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
+
+                    await _generate_session_debrief(
+                        "s1", utterances, scores,
+                        participants=participants, user_archetype="Architect",
+                    )
+
+            prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+            # Person 14 (42 utts) should be included (highest), Person 0 (0 utts) should not
+            assert "Person 14" in prompt
+            assert "Person 13" in prompt
+            # Person 0 through Person 4 have the fewest utterances and should be dropped
+            assert "Person 0" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_debrief_pairing_section_present(self):
+        """When user archetype is known and participants exist, pairing advice appears."""
+        from backend.main import _generate_session_debrief
+
+        participants = [
+            {
+                "speaker_id": "spk_0",
+                "name": "Sarah Chen",
+                "archetype": "Inquisitor",
+                "confidence": 0.8,
+                "focus_score": 50.0,
+                "stance_score": 20.0,
+                "utterance_count": 10,
+                "key_evidence": [],
+                "elm_episodes": [],
+            },
+        ]
+        utterances = [{"speaker": "user", "text": "Test"}]
+        scores = {"persuasion_score": 70, "timing_score": 20, "ego_safety_score": 20, "convergence_score": 30}
+
+        with patch("backend.main._anthropic.AsyncAnthropic") as mock_cls:
+            content = MagicMock()
+            content.text = "Debrief."
+            response = MagicMock()
+            response.content = [content]
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(return_value=response)
+            mock_cls.return_value = mock_client
+
+            with patch("backend.main._load_settings", return_value={"anthropic_api_key": "k"}):
+                with patch("backend.main.get_db_session") as mock_db:
+                    mock_session = AsyncMock()
+                    mock_session.get = AsyncMock(return_value=MagicMock())
+                    mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+                    mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
+
+                    await _generate_session_debrief(
+                        "s1", utterances, scores,
+                        participants=participants, user_archetype="Architect",
+                    )
+
+            prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+            assert "ARCHETYPE PAIRING DYNAMICS" in prompt
+            assert "Sarah Chen" in prompt
+
+
+# ---------------------------------------------------------------------------
+# _update_retro_coaching_bullets
+# ---------------------------------------------------------------------------
+
+class TestRetroCoachingBullets:
+    """Tests for _update_retro_coaching_bullets function."""
+
+    @pytest.mark.asyncio
+    async def test_calls_update_coaching_bullets(self):
+        from backend.main import _update_retro_coaching_bullets
+
+        utterances = [
+            {"speaker_id": "user", "text": "I think we should proceed."},
+            {"speaker_id": "counterpart_0", "text": "Agreed."},
+            {"speaker_id": "user", "text": "Let me check."},
+        ]
+        scores = {
+            "persuasion_score": 70,
+            "timing_score": 20,
+            "ego_safety_score": 20,
+            "convergence_score": 30,
+            "ego_threat_events": 1,
+        }
+
+        with patch("backend.main._load_settings", return_value={"anthropic_api_key": "test-key"}):
+            with patch("backend.main.get_db_session") as mock_db:
+                mock_session = AsyncMock()
+                mock_db.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_db.return_value.__aexit__ = AsyncMock(return_value=None)
+
+                with patch("backend.coaching_bullets.update_coaching_bullets", new_callable=AsyncMock) as mock_update:
+                    await _update_retro_coaching_bullets("s1", "Architect", scores, utterances)
+
+                    mock_update.assert_called_once()
+                    call_kwargs = mock_update.call_args.kwargs
+                    assert call_kwargs["user_archetype"] == "Architect"
+                    assert call_kwargs["session_id"] == "s1"
+                    summary = call_kwargs["session_summary"]
+                    assert summary["context"] == "retro"
+                    assert summary["persuasion_score"] == 70
+                    # 2 user utterances out of 3 total
+                    assert summary["talk_time_ratio"] == pytest.approx(0.67, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_exception_is_swallowed(self):
+        """Errors in retro bullet update should not propagate."""
+        from backend.main import _update_retro_coaching_bullets
+
+        with patch("backend.main._load_settings", return_value={"anthropic_api_key": "k"}):
+            with patch("backend.main.get_db_session", side_effect=RuntimeError("db error")):
+                # Should not raise
+                await _update_retro_coaching_bullets("s1", "Unknown", {}, [])
