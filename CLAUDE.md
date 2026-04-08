@@ -29,6 +29,9 @@ persuasion-dojo/
 │   ├── main.py              # FastAPI app + WebSocket server
 │   ├── audio.py             # Named pipe reader (Swift → Python audio stream)
 │   ├── transcription.py     # Deepgram streaming client (WebSocket lifecycle)
+│   ├── transcriber_protocol.py  # Transcriber Protocol (swappable backends)
+│   ├── moonshine_transcription.py # Local Moonshine ASR fallback
+│   ├── hybrid_transcription.py  # Hybrid transcriber (cloud + local failover)
 │   ├── profiler.py          # Participant Superpower profiler (rule-based, 5-utterance window)
 │   ├── elm_detector.py      # ELM state detection (ego-threatened / shortcut / consensus)
 │   ├── coaching_engine.py   # Claude Haiku prompt generation (3-layer: self/audience/group)
@@ -130,12 +133,16 @@ tests/
 ├── test_calendar_service.py  # Token refresh, participant matching
 ├── test_team_sync.py         # Export, import, malformed JSON validation
 ├── test_bkt.py               # BKT convergence, skill opportunity classification, adversarial inputs
+├── test_phase1_signal_chain.py  # Echo filter, plain English coaching, per-person coaching (50 tests)
+├── test_calendar_auto_seed.py   # Calendar auto-seed at session start
+├── test_hybrid_transcription.py # Hybrid transcriber failover logic
+├── test_moonshine_transcription.py # Local Moonshine transcriber
 └── evals/
     ├── coaching_prompts.py   # 10 fixtures: Superpower × ELM state → expected prompt properties
     └── pre_seeding.py        # Pre-seed classification from text/email/bio inputs
 ```
 
-Run `pytest` for the full backend suite (1060+ tests, ~45s).
+Run `pytest` for the full backend suite (1285+ tests, ~45s).
 
 ## Target user
 
