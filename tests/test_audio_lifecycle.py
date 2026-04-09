@@ -841,8 +841,9 @@ class TestWebSocketMultiSession:
         close immediately with an error — no dangling pipe reader.
         (In auto/local mode, Moonshine fallback handles this gracefully.)
         """
-        # Override the settings mock to return no key
-        with patch("backend.main._load_settings", return_value={}):
+        # Override both settings and env var to simulate missing key
+        with patch("backend.main._load_settings", return_value={}), \
+             patch.dict("os.environ", {"DEEPGRAM_API_KEY": ""}, clear=False):
             r = client.post("/sessions", json={"context": "meeting", "transcription_mode": "cloud"})
             assert r.status_code == 201
             sid = r.json()["session_id"]
