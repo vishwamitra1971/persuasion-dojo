@@ -9,10 +9,12 @@ Three-layer coaching architecture (evaluated each trigger):
 Priority and cadence floors
 ────────────────────────────
   ELM-triggered (ego_threat / consensus_protection / shortcut)  10 s floor
-  General cadence (self / group)                                 60 s floor
+  General cadence (self / group)                                 15 s floor
 
-Both suppressed while user_is_speaking=True (overlay waits 500 ms of
-silence after Deepgram is_final before polling this engine).
+ELM prompts suppressed while user_is_speaking (audience-layer needs
+counterpart context). Self-layer general prompts fire on user utterances
+too — this is how "you've been advocating too long, ask a question"
+works.
 
 Fallback
 ─────────
@@ -174,7 +176,7 @@ class CoachingEngine:
         user_speaker: str,
         anthropic_client: AsyncAnthropic | None = None,
         elm_cadence_floor_s: float = 10.0,
-        general_cadence_floor_s: float = 30.0,
+        general_cadence_floor_s: float = 15.0,
         haiku_timeout_s: float = 1.5,
         model: str = _DEFAULT_MODEL,
         user_archetype: str | None = None,
@@ -209,6 +211,101 @@ class CoachingEngine:
         self._user_archetype = value
 
     # ------------------------------------------------------------------
+    # Initial session prompt
+    # ------------------------------------------------------------------
+
+    async def initial_prompt(
+        self,
+        *,
+        user_profile: ProfileSnapshot | None = None,
+        user_display_name: str = "",
+        meeting_title: str = "",
+    ) -> CoachingPrompt | None:
+        """
+        Generate a welcome coaching prompt at session start.
+
+        Fires once when the session connects, before any utterances.
+        Incorporates: user name, archetype profile, meeting context,
+        known participants with pairing advice, and learned coaching bullets.
+        """
+        user_type = (
+            user_profile.archetype if user_profile and user_profile.archetype != "Undetermined"
+            else self._user_archetype
+        )
+
+        # User identity and profile context
+        name_line = f"The user's name is {user_display_name}." if user_display_name else ""
+        profile_line = f"You are a {user_type}."
+        if user_profile and user_profile.context_shifts:
+            profile_line += (
+                f" In most meetings you're a {user_profile.core_archetype}, "
+                f"but in {user_profile.context} settings you shift toward {user_type}."
+            )
+        confidence_line = ""
+        if user_profile and user_profile.core_sessions >= 3:
+            confidence_line = (
+                f"Based on {user_profile.core_sessions} sessions observed."
+            )
+
+        # Meeting context
+        meeting_note = f'Meeting: "{meeting_title}"' if meeting_title else ""
+
+        # Build participant roster with pairing dynamics
+        participants_section = ""
+        if self._participants:
+            roster = []
+            for p in self._participants:
+                pname = p.get("name", "Unknown")
+                arch = p.get("archetype", "Unknown")
+                pairing = self._enriched_pairing_advice(arch, pname)
+                fp = p.get("fingerprint")
+                if fp:
+                    sessions = fp.get("sessions_observed", 0)
+                    patterns = fp.get("patterns", [])
+                    summary = f"{pname} is a {arch} ({sessions} prior sessions)"
+                    if patterns:
+                        summary += f". Pattern: {patterns[0]}"
+                    roster.append(f"  - {summary}. {pairing}")
+                else:
+                    roster.append(f"  - {pname} is a {arch}. {pairing}")
+            participants_section = (
+                "People in this meeting:\n"
+                + "\n".join(roster) + "\n"
+            )
+
+        # Include learned coaching context from prior sessions
+        playbook_section = ""
+        self._last_bullet_ids = ""
+        if self._user_id:
+            ctx, bullet_ids = await self._load_coaching_context("Unknown")
+            if ctx:
+                playbook_section = f"{ctx}\n"
+            if bullet_ids:
+                self._last_bullet_ids = ",".join(bullet_ids)
+
+        user_msg = (
+            f"{name_line}\n"
+            f"{profile_line}\n"
+            f"{confidence_line}\n"
+            f"{meeting_note}\n\n"
+            f"{participants_section}\n"
+            f"{playbook_section}\n"
+            "This is the start of a session. Generate an opening coaching tip.\n"
+            "RULES:\n"
+            f"- Address the user by their first name ({(user_display_name.split()[0] if user_display_name.split() else 'there') if user_display_name else 'there'}).\n"
+            "- If participants are listed, name the person who will be hardest "
+            "to persuade and give ONE specific thing to do in the first 2 minutes "
+            "based on the pairing between the user's type and that person's type.\n"
+            "- If no participants are listed, give a readiness tip based on the "
+            "user's archetype tendencies.\n"
+            "- Keep it warm, direct, and actionable. One or two sentences max."
+        )
+        prompt = await self._call_haiku("self", user_msg, "session:start", "")
+        if prompt:
+            self._last_prompt_time = time.monotonic()
+        return prompt
+
+    # ------------------------------------------------------------------
     # Core processor
     # ------------------------------------------------------------------
 
@@ -228,20 +325,20 @@ class CoachingEngine:
         Pass None for elm_event on regular cadence ticks.
 
         Returns None when:
-          - user_is_speaking is True
+          - user_is_speaking AND cadence floor not reached (self-layer still fires)
           - the applicable cadence floor has not elapsed
           - Haiku fails AND no cached prompt exists for that layer
         """
-        if user_is_speaking:
-            return None
-
         now = time.monotonic()
 
-        if elm_event is not None:
+        if elm_event is not None and not user_is_speaking:
+            # ELM prompts (audience-layer) only fire on counterpart utterances
             if now - self._last_prompt_time < self._elm_floor:
                 return None
             prompt = await self._elm_prompt(elm_event, participant_profile, user_profile)
         else:
+            # Self-layer general prompts fire on BOTH user and counterpart utterances.
+            # This is how "you've been advocating for 4 minutes — ask a question" works.
             if now - self._last_prompt_time < self._general_floor:
                 return None
             prompt = await self._general_prompt(

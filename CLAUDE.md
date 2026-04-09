@@ -91,7 +91,7 @@ persuasion-dojo/
 - **Privacy:** participant profiles stored locally (SQLite); Claude API processes transcript text — disclose in first-run wizard. Team JSON export is AES-256 encrypted (passphrase required to import). Corporate MDM may block Screen Recording permission; V1 targets personal Mac users.
 - **Convergence scoring:** pre-build spike required — annotate 5-10 real transcripts, verify signals ≥75% before building `scoring.py`. If fails: replace Persuasion Score with Session Summary. Pre-seed accuracy gate: classify ≥70% of 5 known profiles correctly before deploying `pre_seeding.py`.
 - **Build order:** dev-sign Swift binary → ScreenCaptureKit PoC (SCK audio, not clean recordings) → full notarization CI → distribution
-- **Coaching cadence:** ELM-triggered prompts: 10s minimum floor. General prompts (self/group): 60s floor. Both suppressed while user is mid-utterance (wait 500ms silence after `is_final`).
+- **Coaching cadence:** ELM-triggered prompts: 10s minimum floor (counterpart utterances only). General prompts (self/group): 15s floor, fires on both user and counterpart utterances so self-coaching ("you've been advocating too long") works.
 - **Fallback indicator:** When Haiku times out (1.5s) and fallback fires, overlay shows subtle `↻ cached` badge on the prompt.
 - **SCK permission check:** Check Screen Recording permission at session start (not just first-run). bundle signature change on update may silently revoke permission.
 - **Swift binary supervision:** Python tracks last audio timestamp. If silent >5s (pipe dead), Python sends restart signal to Electron, which restarts the Swift binary.

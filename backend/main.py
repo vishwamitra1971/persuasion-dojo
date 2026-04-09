@@ -1290,6 +1290,7 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
             await ws.close(code=4004, reason="Session not found")
             return
         user_speaker = _USER_SPEAKER_ID
+        meeting_title = row.title or ""
 
     await ws.accept()
 
@@ -1372,8 +1373,8 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
         except Exception:
             pass  # Non-critical — proceed without effectiveness data
 
-    # Average adapted cadence across all pairings; fall back to the 30s default
-    session_cadence_s = sum(cadence_samples) / len(cadence_samples) if cadence_samples else 30.0
+    # Average adapted cadence across all pairings; fall back to the 15s default
+    session_cadence_s = sum(cadence_samples) / len(cadence_samples) if cadence_samples else 15.0
 
     engine = CoachingEngine(
         user_speaker=user_speaker,
@@ -1382,6 +1383,7 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
         participants=participants_info,
         effectiveness_data=effectiveness_data or None,
         general_cadence_floor_s=session_cadence_s,
+        user_id=_DEFAULT_USER_ID,
     )
 
     pipeline = SessionPipeline(
@@ -1395,10 +1397,12 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
     pipeline.session_context = coaching_ctx.get("context", "unknown")  # type: ignore[attr-defined]
 
     # Load user's profile snapshot for personalized coaching
+    user_display_name = ""
     try:
         async with get_db_session() as db:
             user = await db.get(User, _DEFAULT_USER_ID)
             if user is not None:
+                user_display_name = user.display_name or ""
                 ctx_rows = await db.execute(
                     select(ContextProfile).where(ContextProfile.user_id == user.id)
                 )
@@ -1667,6 +1671,28 @@ async def websocket_session(ws: WebSocket, session_id: str) -> None:
 
     asyncio.ensure_future(_check_audio_started())
 
+    # ── Initial coaching prompt (fires once at session start, background) ──
+    async def _send_initial_prompt() -> None:
+        try:
+            initial = await engine.initial_prompt(
+                user_profile=pipeline.user_profile if hasattr(pipeline, "user_profile") else None,
+                user_display_name=user_display_name,
+                meeting_title=meeting_title,
+            )
+            if initial:
+                await ws.send_json({
+                    "type": "coaching_prompt",
+                    "layer": initial.layer,
+                    "text": initial.text,
+                    "is_fallback": initial.is_fallback,
+                    "triggered_by": initial.triggered_by,
+                    "speaker_id": initial.speaker_id,
+                })
+        except Exception:
+            logger.debug("Initial coaching prompt failed", exc_info=True)
+
+    asyncio.ensure_future(_send_initial_prompt())
+
     # ── Message loop ──────────────────────────────────────────────────────
 
     try:
@@ -1714,7 +1740,24 @@ async def _handle_message(
         await ws.send_json({"type": "pong"})
 
     elif msg_type == "session_end":
-        await _handle_session_end(ws, pipeline)
+        try:
+            await _handle_session_end(ws, pipeline)
+        except Exception:
+            logger.exception("Error during session end — sending fallback session_ended")
+            try:
+                await ws.send_json({
+                    "type": "session_ended",
+                    "session_id": pipeline.session_id,
+                    "persuasion_score": None,
+                    "growth_delta": None,
+                    "breakdown": {"timing": 0, "ego_safety": 0, "convergence": 0},
+                    "participants": [],
+                    "user_archetype": None,
+                })
+                await asyncio.sleep(0.05)
+                await ws.close()
+            except Exception:
+                pass
         return True
 
     elif msg_type == "confirm_profile":

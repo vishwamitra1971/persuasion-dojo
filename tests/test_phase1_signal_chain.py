@@ -792,3 +792,210 @@ class TestCoachingPlainEnglish:
         from backend.coaching_engine import _ELM_STATE_DESCRIPTION
         desc = _ELM_STATE_DESCRIPTION["consensus_protection"]
         assert "disagreement" in desc.lower() or "shutting" in desc.lower()
+
+
+# ── Initial Session Prompt ────────────────────────────────────────────
+
+
+class TestInitialPrompt:
+    """Verify the initial coaching prompt fires at session start."""
+
+    def _make_engine(self, **kwargs):
+        defaults = dict(
+            user_speaker="user",
+            anthropic_client=AsyncMock(),
+            user_archetype="Architect",
+            user_id="local-user",
+        )
+        defaults.update(kwargs)
+        return CoachingEngine(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_returns_prompt(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="Stay curious, ask questions early.")])
+        )
+        result = await engine.initial_prompt(user_display_name="Vish")
+        assert result is not None
+        assert result.text == "Stay curious, ask questions early."
+        assert result.triggered_by == "session:start"
+        assert result.layer == "self"
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_includes_user_name_in_query(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(user_display_name="Vish")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "Vish" in user_msg
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_includes_meeting_title(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(meeting_title="Q2 Board Review")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "Q2 Board Review" in user_msg
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_includes_participants(self):
+        engine = self._make_engine(
+            participants=[
+                {"name": "Sarah", "archetype": "Inquisitor"},
+                {"name": "Mike", "archetype": "Firestarter"},
+            ]
+        )
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt()
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "Sarah" in user_msg
+        assert "Mike" in user_msg
+        assert "Inquisitor" in user_msg
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_sets_last_prompt_time(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        assert engine._last_prompt_time == 0.0
+        await engine.initial_prompt()
+        assert engine._last_prompt_time > 0.0
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_no_participants_still_works(self):
+        engine = self._make_engine(participants=[])
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="You got this.")])
+        )
+        result = await engine.initial_prompt(user_display_name="Vish")
+        assert result is not None
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        # New prompt rules say "give a readiness tip based on the user's archetype tendencies"
+        assert "readiness tip" in user_msg.lower() or "archetype" in user_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_fallback_on_api_error(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(side_effect=Exception("API down"))
+        result = await engine.initial_prompt()
+        # No cache exists yet, so fallback returns None
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_welcome_when_no_name(self):
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(user_display_name="")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        # When no name given, the first-name extraction falls back to "there"
+        assert "there" in user_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_whitespace_only_name_safe(self):
+        """Whitespace-only display name should not raise IndexError."""
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        result = await engine.initial_prompt(user_display_name="   ")
+        assert result is not None
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "there" in user_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_with_context_shifts(self):
+        """When user_profile has context_shifts, prompt mentions the shift."""
+        from backend.models import ProfileSnapshot
+
+        profile = ProfileSnapshot(
+            archetype="Firestarter",
+            focus_score=0.7,
+            stance_score=0.8,
+            focus_variance=0.05,
+            stance_variance=0.04,
+            confidence=0.85,
+            context="board",
+            context_sessions=5,
+            is_context_specific=True,
+            core_archetype="Architect",
+            core_sessions=10,
+            context_shifts=True,
+        )
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(user_profile=profile, user_display_name="Vish")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "Architect" in user_msg
+        assert "board" in user_msg
+        assert "shift" in user_msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_with_confidence_line(self):
+        """When core_sessions >= 3, prompt includes session count."""
+        from backend.models import ProfileSnapshot
+
+        profile = ProfileSnapshot(
+            archetype="Architect",
+            focus_score=0.3,
+            stance_score=0.2,
+            focus_variance=0.03,
+            stance_variance=0.02,
+            confidence=0.9,
+            context="general",
+            context_sessions=4,
+            is_context_specific=False,
+            core_archetype="Architect",
+            core_sessions=7,
+            context_shifts=False,
+        )
+        engine = self._make_engine()
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(user_profile=profile, user_display_name="Vish")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "7 sessions" in user_msg
+
+    @pytest.mark.asyncio
+    async def test_initial_prompt_with_fingerprint_data(self):
+        """Participant fingerprint patterns appear in the prompt."""
+        engine = self._make_engine(
+            participants=[
+                {
+                    "name": "Sarah",
+                    "archetype": "Inquisitor",
+                    "fingerprint": {
+                        "sessions_observed": 4,
+                        "patterns": ["Asks for data before committing"],
+                    },
+                },
+            ]
+        )
+        engine._client.messages.create = AsyncMock(
+            return_value=MagicMock(content=[MagicMock(text="tip")])
+        )
+        await engine.initial_prompt(user_display_name="Vish")
+        call_args = engine._client.messages.create.call_args
+        user_msg = call_args.kwargs["messages"][0]["content"]
+        assert "4 prior sessions" in user_msg
+        assert "Asks for data before committing" in user_msg
