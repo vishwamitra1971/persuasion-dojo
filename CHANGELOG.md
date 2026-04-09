@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.2.0] - 2026-04-09
+
+### Added
+- Opening coaching prompt fires at session start with personalized welcome: user name, archetype profile, participant roster with pairing advice, and learned coaching bullets from prior sessions.
+- Self-layer coaching now fires on user utterances, not just counterpart turns. Enables "you've been advocating for 4 minutes, ask a question" style coaching.
+- Session-end safety net: if backend crashes during scoring, overlay still shows debrief screen with a fallback result instead of hanging.
+- 4 new initial prompt tests covering context shifts, confidence lines, fingerprint data, and whitespace-only name edge case.
+
+### Changed
+- General coaching cadence floor reduced from 30s to 15s for faster feedback in fast-moving meetings.
+- ELM-triggered prompts (audience layer) remain counterpart-only. Self-layer general prompts fire on both speakers.
+
+### Fixed
+- `user_display_name.split()[0]` crash when display name is whitespace-only (e.g. `"   "`).
+- CoachingEngine `user_id` was not passed from session handler, preventing ACE coaching bullets from loading.
+- Frontend fallback `persuasion_score` changed from `0` to `null` so fallback results are distinguishable from real zero scores.
+- `test_missing_deepgram_key_cloud_mode_closes_cleanly` patched to clear `os.environ` so real Deepgram key doesn't leak through in test.
+
 ## [0.10.1.0] - 2026-04-08
 
 ### Added
