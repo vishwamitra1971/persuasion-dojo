@@ -278,14 +278,24 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
 
     ws.onclose = () => {
       stopPing();
-      if (phaseRef.current !== "ended") {
-        // session_ended was never received (crash, network drop) — stop capture
-        // as a safety net to prevent orphaned Swift processes.
+      if (phaseRef.current === "ending") {
+        // session_end was sent but session_ended never arrived (backend crashed
+        // during scoring). Show review with a fallback result rather than dumping
+        // the user back to the home screen with no feedback.
         window.api.stopCapture();
-        // Reset phase so startSession() guard lets the user retry.
+        setSessionResult(prev => prev ?? {
+          session_id: id,
+          persuasion_score: null,
+          growth_delta: null,
+          breakdown: { timing: 0, ego_safety: 0, convergence: 0 },
+        } as unknown as SessionEndData);
+        updatePhase("ended");
+        setConnectionState("idle");
+      } else if (phaseRef.current !== "ended") {
+        // Unexpected close (crash, network drop) during active session.
+        window.api.stopCapture();
         updatePhase("idle");
         setConnectionState("error");
-        // errorMessage may already be set via {"type":"error"} — don't overwrite it.
       }
     };
 
@@ -302,9 +312,16 @@ export function useCoachingSocket(): CoachingSocketState & CoachingSocketActions
       updatePhase("ending");
     } else {
       // WebSocket not open — force end locally so the UI isn't stuck.
+      // Provide a fallback result so the review screen renders instead of going home.
       stopPing();
       wsRef.current?.close();
       wsRef.current = null;
+      setSessionResult(prev => prev ?? {
+        session_id: "",
+        persuasion_score: null,
+        growth_delta: null,
+        breakdown: { timing: 0, ego_safety: 0, convergence: 0 },
+      } as unknown as SessionEndData);
       updatePhase("ended");
       setConnectionState("idle");
     }
