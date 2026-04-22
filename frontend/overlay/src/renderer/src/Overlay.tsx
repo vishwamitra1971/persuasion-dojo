@@ -1315,7 +1315,7 @@ export function Overlay(): React.ReactElement {
             <span style={{ fontSize: 12, fontWeight: 500, color: "var(--red)", letterSpacing: 0.5, textTransform: "uppercase" }}>Live</span>
             {/* Audio level meter — 5 bars */}
             <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 14, marginLeft: 4 }}>
-              {[0.02, 0.04, 0.08, 0.15, 0.25].map((threshold, i) => {
+              {[0.003, 0.008, 0.015, 0.03, 0.06].map((threshold, i) => {
                 const active = audioLevel >= threshold;
                 return (
                   <div
