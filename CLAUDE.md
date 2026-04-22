@@ -11,6 +11,33 @@ uvicorn backend.main:app --reload  # start FastAPI dev server
 pytest                      # run tests
 ```
 
+### Docker (backend only)
+
+````bash
+cp .env.example .env           # first-time setup, then fill in API keys
+docker compose up -d --build   # build image and start backend on :8000
+docker compose logs -f backend # tail logs
+curl localhost:8000/health     # smoke test
+docker compose down            # stop; SQLite data persists in the named volume
+````
+
+The backend container now accepts live audio from the host Swift binary
+over loopback TCP (port `9090` by default, override with `AUDIO_TCP_PORT`).
+Run the Swift ScreenCaptureKit binary on the host and it will connect to
+`127.0.0.1:9090`. The Electron overlay spawns the Swift binary and
+forwards `AUDIO_BACKEND_PORT` automatically.
+
+**Host venv users:** the `requirements.txt` split means test tooling is
+now in `requirements-dev.txt`. Install both for a working dev env:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+```
+
+**Single-instance note:** `docker-compose.yml` sets `container_name:
+persuasion-dojo-backend`, so only one instance of this stack can run at
+a time on a given Docker host.
+
 ## Stack
 
 - **Backend:** Python + FastAPI + WebSockets
